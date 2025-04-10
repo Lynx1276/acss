@@ -1,0 +1,242 @@
+<?php
+require __DIR__ . '/../vendor/autoload.php';
+
+// Load environment
+Dotenv\Dotenv::createImmutable(__DIR__ . '/../')->load();
+
+// Initialize secure session
+session_start([
+    'cookie_lifetime' => 86400,
+    'cookie_secure' => isset($_SERVER['HTTPS']),
+    'cookie_httponly' => true,
+    'use_strict_mode' => true
+]);
+
+// Define route handler functions first
+require_once __DIR__ . '/../src/middleware/AuthMiddleware.php';
+function handleChairRoutes($path)
+{
+    switch ($path) {
+        case '/chair/dashboard':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->dashboard();
+            exit;
+        case '/chair/view_schedule': // Note: 'veiw' seems to be a typo, should be 'view'
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->schedule();
+            exit;
+        case '/chair/generate_schedule':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->generateSchedule();
+            exit;
+        case '/chair/classroom':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->classrooms();
+            exit;
+        case '/chair/edit_classroom':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->editClassroom();
+            exit;
+        case '/chair/create_offerings':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->createOfferings();
+            exit;
+        case '/chair/faculty':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->faculty();
+            exit;
+        case '/chair/faculty_edit':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->editFaculty();
+            exit;
+        case '/chair/courses':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->courses();
+            exit;
+        case '/chair/approvals':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->approvals();
+            exit;
+        case '/chair/report':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->reports();
+            exit;
+        case '/chair/settings':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->settings();
+            exit;
+        case '/chair/logout':
+            require __DIR__ . '/../src/controllers/AuthController.php';
+            (new AuthController())->logout();
+            exit;
+        case '/chair/curriculum':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->curriculum();
+            exit;
+        case '/chair/curriculum/versions':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->curriculumVersions();
+            exit;
+        case '/chair/curriculum/new':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->newCurriculum();
+            exit;
+    }
+}
+
+function handleAdminRoutes($path)
+{
+    switch ($path) {
+        case '/admin/dashboard':
+            require __DIR__ . '/../src/controllers/AdminController.php';
+            (new AdminController())->dashboard();
+            exit;
+        case '/admin/users':
+            require __DIR__ . '/../src/controllers/AdminController.php';
+            (new AdminController())->users();
+            exit;
+    }
+}
+
+// Add similar handler functions for other roles
+function handleVpaaRoutes($path) {}
+function handleDiRoutes($path) {}
+function handleDeanRoutes($path) {}
+
+function handleFacultyRoutes($path)
+    {
+        switch ($path) {
+            case '/faculty/dashboard':
+                require __DIR__ . '/../src/controllers/FacultyController.php';
+                (new FacultyController())->dashboard();
+                exit;
+            case '/faculty/schedule':
+                require __DIR__ . '/../src/controllers/FacultyController.php';
+                (new FacultyController())->schedule();
+                exit;
+            case '/faculty/requests':
+                require __DIR__ . '/../src/controllers/FacultyController.php';
+                (new FacultyController())->requests();
+                exit;
+            case '/faculty/profile':
+                require __DIR__ . '/../src/controllers/FacultyController.php';
+                (new FacultyController())->profile();
+            exit;
+            case '/faculty/logout':
+                require __DIR__ . '/../src/controllers/AuthController.php';
+                (new AuthController())->logout();
+                exit;
+        }
+}
+
+
+// Simple router
+$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+
+// Public routes that don't require authentication
+$publicRoutes = ['/login', '/register', '/', '/home', '/public/search', '/api/departments'];
+if (in_array($path, $publicRoutes) || $path === '/auth/register') {
+    switch ($path) {
+        case '/login':
+            require __DIR__ . '/../src/controllers/AuthController.php';
+            $controller = new AuthController();
+            if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+                $controller->showLogin();
+            } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                $controller->login($_POST['username'] ?? '', $_POST['password'] ?? '');
+            }
+            exit;
+
+        case '/register':
+            require __DIR__ . '/../src/controllers/AuthController.php';
+            $controller = new AuthController();
+            if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+                $controller->showRegister();
+            }
+            exit;
+
+
+        case '/auth/register':
+            require __DIR__ . '/../src/controllers/AuthController.php';
+            $controller = new AuthController();
+            if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+                $controller->showRegister();
+            } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                $controller->handleRegistration();
+            }
+            exit;
+
+        case '/api/departments':
+            if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+                require __DIR__ . '/../src/controllers/AuthController.php'; // Assuming this is handled by AuthController
+                (new AuthController())->getDepartments();
+            }
+            exit;
+
+        case '/home':
+            if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+                require __DIR__ . '/../src/controllers/PublicController.php';
+                (new PublicController())->showHomepage();
+            }
+            exit;
+
+        case '/public/search':
+            if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                require __DIR__ . '/../src/controllers/PublicController.php';
+                (new PublicController())->searchSchedules();
+            }
+            exit;
+
+        case '/':
+            header('Location: /home');
+            exit;
+
+        default:
+            http_response_code(404);
+            echo 'Page not found';
+            exit;
+    }
+}
+
+// Protected routes - require authentication
+if (!isset($_SESSION['user'])) {
+    header('Location: /login');
+    exit;
+}
+
+// Get user role from session
+// Protected routes - let AuthMiddleware handle authentication
+require_once __DIR__ . '/../src/middleware/AuthMiddleware.php';
+$roleId = $_SESSION['user']['role_id'] ?? null;
+
+// Handle role-specific routes
+switch ($roleId) {
+    case 1: // Admin
+        handleAdminRoutes($path);
+        break;
+    case 2: // VPAA
+        handleVpaaRoutes($path);
+        break;
+    case 3: // DI
+        handleDiRoutes($path);
+        break;
+    case 4: // Chair
+        handleChairRoutes($path);
+        break;
+    case 5: // Dean
+        handleDeanRoutes($path);
+        break;
+    case 6: // Faculty
+        handleFacultyRoutes($path);
+        break;
+    default:
+        AuthMiddleware::handle(null); // Basic session check
+        http_response_code(403);
+        echo 'Unauthorized role';
+        exit;
+}
+
+// If no route matched, show 404
+http_response_code(404);
+echo 'Page not found';
+exit;
