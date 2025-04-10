@@ -20,6 +20,7 @@ class ChairController {
             if (!isset($_SESSION['user']['department_id'])) {
                 throw new Exception("User department not set");
             }
+            
 
             $departmentId = $_SESSION['user']['department_id'];
 

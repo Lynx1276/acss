@@ -85,10 +85,11 @@ class AuthController
                 'email' => $user['email'],
                 'role_id' => (int)$user['role_id'],
                 'role_name' => $user['role_name'],
-                'department_id' => (int)$user['department_id'],
+                'department_id' => $user['department_id'] ? (int)$user['department_id'] : null, // Handle NULL
                 'college_id' => (int)$user['college_id'],
                 'faculty_id' => $user['faculty_id'] ? (int)$user['faculty_id'] : null
             ];
+            error_log("Login successful for user: $username, session: " . json_encode($_SESSION['user']));
 
             $this->redirectBasedOnRole();
         } catch (Exception $e) {
@@ -129,7 +130,6 @@ class AuthController
     public function handleRegistration()
     {
         try {
-            // Only process if this is a full registration submission
             if (!isset($_POST['register_submit'])) {
                 header("Location: /register");
                 exit();
@@ -153,7 +153,7 @@ class AuthController
                 }
             }
 
-            // Validate required fields
+            // Validate required fields (exclude department_id for Dean)
             $requiredFields = [
                 'username',
                 'email',
@@ -161,7 +161,6 @@ class AuthController
                 'confirm_password',
                 'role_id',
                 'college_id',
-                'department_id',
                 'first_name',
                 'last_name'
             ];
@@ -178,14 +177,18 @@ class AuthController
             if ($_POST['password'] !== $_POST['confirm_password']) {
                 throw new Exception("Passwords do not match");
             }
-            if (empty($_POST['department_id'])) {
+
+            $roleId = (int)$_POST['role_id'];
+            if ($roleId !== 5 && (empty($_POST['department_id']) || !is_numeric($_POST['department_id']))) {
                 throw new Exception("Please select a valid department");
             }
 
-            $stmt = $this->db->prepare("SELECT 1 FROM departments WHERE department_id = ? AND college_id = ?");
-            $stmt->execute([$_POST['department_id'], $_POST['college_id']]);
-            if ($stmt->rowCount() === 0) {
-                throw new Exception("Selected department doesn't belong to the chosen college");
+            if ($roleId !== 5) {
+                $stmt = $this->db->prepare("SELECT 1 FROM departments WHERE department_id = ? AND college_id = ?");
+                $stmt->execute([$_POST['department_id'], $_POST['college_id']]);
+                if ($stmt->rowCount() === 0) {
+                    throw new Exception("Selected department doesn't belong to the chosen college");
+                }
             }
 
             // Prepare registration data
@@ -193,13 +196,13 @@ class AuthController
                 'username' => trim($_POST['username']),
                 'email' => trim($_POST['email']),
                 'password' => $_POST['password'],
-                'role_id' => (int)$_POST['role_id'],
-                'department_id' => (int)$_POST['department_id'],
+                'role_id' => $roleId,
+                'department_id' => ($roleId === 5) ? null : (int)$_POST['department_id'],
                 'college_id' => (int)$_POST['college_id'],
                 'first_name' => trim($_POST['first_name']),
                 'last_name' => trim($_POST['last_name']),
-                'position' => $_POST['role_id'] == 6 ? ($_POST['position'] ?? 'Instructor') : null,
-                'employment_type' => $_POST['role_id'] == 6 ? ($_POST['employment_type'] ?? 'Regular') : null
+                'position' => ($roleId == 6) ? ($_POST['position'] ?? 'Instructor') : null,
+                'employment_type' => ($roleId == 6) ? ($_POST['employment_type'] ?? 'Regular') : null
             ];
 
             // Register the user
@@ -215,26 +218,13 @@ class AuthController
                 $userData['position'],
                 $userData['employment_type']
             );
-            error_log("Registration complete for user: " . $userData['username']);
 
-            // Ensure transaction is committed before login
-            // If AuthService doesn't handle this, we assume it's done in registerUser
+            error_log("Registration complete for user: " . $userData['username']);
 
             // Login the user
             $loginSuccess = $this->authService->login($userData['username'], $userData['password']);
             if (!$loginSuccess) {
-                // Debug why login failed
-                $stmt = $this->db->prepare("SELECT password_hash FROM users WHERE username = ?");
-                $stmt->execute([$userData['username']]);
-                $user = $stmt->fetch();
-                error_log("Stored hash: " . ($user['password_hash'] ?? 'Not found'));
-                error_log("Password verify result: " . (password_verify($userData['password'], $user['password_hash'] ?? '') ? 'true' : 'false'));
                 throw new Exception("Login failed after registration");
-            }
-            error_log("Login successful for user: " . $userData['username'] . ", role_id: " . $userData['role_id']);
-
-            if (!isset($_SESSION['user']) || !isset($_SESSION['user']['role_id'])) {
-                throw new Exception("Session not properly set after login");
             }
 
             unset($_SESSION['form_data']);
@@ -253,18 +243,16 @@ class AuthController
         $this->db->beginTransaction();
 
         try {
-            // Hash password
             $passwordHash = password_hash($userData['password'], PASSWORD_BCRYPT);
 
-            // Insert user record (without faculty_id)
             $stmt = $this->db->prepare("
-            INSERT INTO users (
-                username, email, password_hash,
-                first_name, last_name,
-                role_id, department_id, college_id,
-                is_active, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
-        ");
+                INSERT INTO users (
+                    username, email, password_hash,
+                    first_name, last_name,
+                    role_id, department_id, college_id,
+                    is_active, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
+            ");
             $stmt->execute([
                 $userData['username'],
                 $userData['email'],
@@ -272,21 +260,20 @@ class AuthController
                 $userData['first_name'],
                 $userData['last_name'],
                 $userData['role_id'],
-                $userData['department_id'],
+                $userData['department_id'], // NULL for Dean
                 $userData['college_id']
             ]);
 
             $userId = $this->db->lastInsertId();
 
-            // Create faculty record only for faculty role (role_id = 6)
             if ((int)$userData['role_id'] === 6) {
                 $stmt = $this->db->prepare("
-                INSERT INTO faculty (
-                    first_name, last_name, email, phone,
-                    position, employment_type, department_id,
-                    user_id, created_at, updated_at
-                ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, NOW(), NOW())
-            ");
+                    INSERT INTO faculty (
+                        first_name, last_name, email, phone,
+                        position, employment_type, department_id,
+                        user_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, NOW(), NOW())
+                ");
                 $stmt->execute([
                     $userData['first_name'],
                     $userData['last_name'],

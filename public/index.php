@@ -14,6 +14,7 @@ session_start([
 
 // Define route handler functions first
 require_once __DIR__ . '/../src/middleware/AuthMiddleware.php';
+
 function handleChairRoutes($path)
 {
     switch ($path) {
@@ -21,7 +22,7 @@ function handleChairRoutes($path)
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->dashboard();
             exit;
-        case '/chair/view_schedule': // Note: 'veiw' seems to be a typo, should be 'view'
+        case '/chair/view_schedule':
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->schedule();
             exit;
@@ -98,37 +99,63 @@ function handleAdminRoutes($path)
     }
 }
 
-// Add similar handler functions for other roles
 function handleVpaaRoutes($path) {}
 function handleDiRoutes($path) {}
-function handleDeanRoutes($path) {}
 
-function handleFacultyRoutes($path)
-    {
-        switch ($path) {
-            case '/faculty/dashboard':
-                require __DIR__ . '/../src/controllers/FacultyController.php';
-                (new FacultyController())->dashboard();
-                exit;
-            case '/faculty/schedule':
-                require __DIR__ . '/../src/controllers/FacultyController.php';
-                (new FacultyController())->schedule();
-                exit;
-            case '/faculty/requests':
-                require __DIR__ . '/../src/controllers/FacultyController.php';
-                (new FacultyController())->requests();
-                exit;
-            case '/faculty/profile':
-                require __DIR__ . '/../src/controllers/FacultyController.php';
-                (new FacultyController())->profile();
-            exit;
-            case '/faculty/logout':
-                require __DIR__ . '/../src/controllers/AuthController.php';
-                (new AuthController())->logout();
-                exit;
-        }
+function handleDeanRoutes($path)
+{
+    switch ($path) {
+        case '/dean/dashboard':
+            require_once __DIR__ . '/../src/controllers/DeanController.php'; // Fixed path
+           (new DeanController())->dashboard();
+            break;
+        case '/dean/schedule':
+            require_once __DIR__ . '/../src/controllers/DeanController.php';
+            (new DeanController())->schedules();
+            break;
+        case '/dean/requests':
+            require_once __DIR__ . '/../src/controllers/DeanController.php';
+            (new DeanController())->requests();
+            break;
+        case '/dean/faculty':
+            require_once __DIR__ . '/../src/controllers/DeanController.php';
+            (new DeanController())->faculty();
+            break;
+        case '/logout':
+            require_once __DIR__ . '/../src/controllers/AuthController.php';
+            (new AuthController())->logout();
+            break;
+        default:
+            echo "404 Not Found";
+    }
+    exit;
 }
 
+function handleFacultyRoutes($path)
+{
+    switch ($path) {
+        case '/faculty/dashboard':
+            require __DIR__ . '/../src/controllers/FacultyController.php';
+            (new FacultyController())->dashboard();
+            exit;
+        case '/faculty/schedule':
+            require __DIR__ . '/../src/controllers/FacultyController.php';
+            (new FacultyController())->schedule();
+            exit;
+        case '/faculty/requests':
+            require __DIR__ . '/../src/controllers/FacultyController.php';
+            (new FacultyController())->requests();
+            exit;
+        case '/faculty/profile':
+            require __DIR__ . '/../src/controllers/FacultyController.php';
+            (new FacultyController())->profile();
+            exit;
+        case '/faculty/logout':
+            require __DIR__ . '/../src/controllers/AuthController.php';
+            (new AuthController())->logout();
+            exit;
+    }
+}
 
 // Simple router
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
@@ -155,7 +182,6 @@ if (in_array($path, $publicRoutes) || $path === '/auth/register') {
             }
             exit;
 
-
         case '/auth/register':
             require __DIR__ . '/../src/controllers/AuthController.php';
             $controller = new AuthController();
@@ -168,7 +194,7 @@ if (in_array($path, $publicRoutes) || $path === '/auth/register') {
 
         case '/api/departments':
             if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-                require __DIR__ . '/../src/controllers/AuthController.php'; // Assuming this is handled by AuthController
+                require __DIR__ . '/../src/controllers/AuthController.php';
                 (new AuthController())->getDepartments();
             }
             exit;
@@ -205,8 +231,6 @@ if (!isset($_SESSION['user'])) {
 }
 
 // Get user role from session
-// Protected routes - let AuthMiddleware handle authentication
-require_once __DIR__ . '/../src/middleware/AuthMiddleware.php';
 $roleId = $_SESSION['user']['role_id'] ?? null;
 
 // Handle role-specific routes

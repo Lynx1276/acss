@@ -1663,6 +1663,218 @@ class SchedulingService
         fclose($output);
     }
 
+    public function getPendingRequestsByCollege($collegeId)
+    {
+        try {
+            $query = "SELECT sr.request_id, sr.faculty_id, f.first_name, f.last_name, c.course_code, 
+                             s.day_of_week, TIME_FORMAT(s.start_time, '%h:%i %p') AS start_time, 
+                             TIME_FORMAT(s.end_time, '%h:%i %p') AS end_time, sr.request_type, sr.details, sr.created_at
+                      FROM schedule_requests sr
+                      JOIN schedules s ON sr.schedule_id = s.schedule_id
+                      JOIN faculty f ON sr.faculty_id = f.faculty_id
+                      JOIN courses c ON s.course_id = c.course_id
+                      JOIN departments d ON f.department_id = d.department_id
+                      WHERE d.college_id = :college_id AND sr.status = 'pending'
+                      ORDER BY sr.created_at DESC";
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':college_id', $collegeId, PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log("Failed to fetch pending requests: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    public function getCollegeFacultyStats($collegeId)
+    {
+        try {
+            $stats = ['totalFaculty' => 0, 'totalCourses' => 0, 'pendingRequests' => 0];
+            $query = "SELECT COUNT(*) AS total_faculty 
+                      FROM faculty f
+                      JOIN departments d ON f.department_id = d.department_id
+                      WHERE d.college_id = :college_id";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute([':college_id' => $collegeId]);
+            $stats['totalFaculty'] = $stmt->fetchColumn();
+
+            $query = "SELECT COUNT(DISTINCT s.schedule_id) AS total_courses 
+                      FROM schedules s 
+                      JOIN faculty f ON s.faculty_id = f.faculty_id 
+                      JOIN departments d ON f.department_id = d.department_id
+                      JOIN semesters sem ON s.semester_id = sem.semester_id
+                      WHERE d.college_id = :college_id AND sem.is_current = 1";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute([':college_id' => $collegeId]);
+            $stats['totalCourses'] = $stmt->fetchColumn();
+
+            $query = "SELECT COUNT(*) AS pending 
+                      FROM schedule_requests sr 
+                      JOIN faculty f ON sr.faculty_id = f.faculty_id 
+                      JOIN departments d ON f.department_id = d.department_id
+                      WHERE d.college_id = :college_id AND sr.status = 'pending'";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute([':college_id' => $collegeId]);
+            $stats['pendingRequests'] = $stmt->fetchColumn();
+
+            return $stats;
+        } catch (Exception $e) {
+            error_log("Failed to fetch college stats: " . $e->getMessage());
+            return ['totalFaculty' => 0, 'totalCourses' => 0, 'pendingRequests' => 0];
+        }
+    }
+
+    public function getPendingRequestsByDepartment($collegeId)
+    {
+        try {
+            $query = "SELECT sr.request_id, sr.faculty_id, f.first_name, f.last_name, c.course_code, 
+                         s.day_of_week, TIME_FORMAT(s.start_time, '%h:%i %p') AS start_time, 
+                         TIME_FORMAT(s.end_time, '%h:%i %p') AS end_time, sr.request_type, sr.details, sr.created_at
+                  FROM schedule_requests sr
+                  JOIN schedules s ON sr.schedule_id = s.schedule_id
+                  JOIN faculty f ON sr.faculty_id = f.faculty_id
+                  JOIN courses c ON s.course_id = c.course_id
+                  JOIN departments d ON f.department_id = d.department_id
+                  WHERE d.college_id = :college_id AND sr.status = 'pending'
+                  ORDER BY sr.created_at DESC";
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':college_id', $collegeId, PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log("Failed to fetch pending requests: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    public function getDepartmentFacultyStats($departmentId)
+    {
+        try {
+            $stats = ['totalFaculty' => 0, 'totalCourses' => 0, 'pendingRequests' => 0];
+            $query = "SELECT COUNT(*) AS total_faculty FROM faculty WHERE department_id = :department_id";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute([':department_id' => $departmentId]);
+            $stats['totalFaculty'] = $stmt->fetchColumn();
+
+            $query = "SELECT COUNT(DISTINCT s.schedule_id) AS total_courses 
+                      FROM schedules s 
+                      JOIN faculty f ON s.faculty_id = f.faculty_id 
+                      JOIN semesters sem ON s.semester_id = sem.semester_id
+                      WHERE f.department_id = :department_id AND sem.is_current = 1";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute([':department_id' => $departmentId]);
+            $stats['totalCourses'] = $stmt->fetchColumn();
+
+            $query = "SELECT COUNT(*) AS pending 
+                      FROM schedule_requests sr 
+                      JOIN faculty f ON sr.faculty_id = f.faculty_id 
+                      WHERE f.department_id = :department_id AND sr.status = 'pending'";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute([':department_id' => $departmentId]);
+            $stats['pendingRequests'] = $stmt->fetchColumn();
+
+            return $stats;
+        } catch (Exception $e) {
+            error_log("Failed to fetch department stats: " . $e->getMessage());
+            return ['totalFaculty' => 0, 'totalCourses' => 0, 'pendingRequests' => 0];
+        }
+    }
+
+    public function getDepartmentSchedules($departmentId, $semesterId = null)
+    {
+        try {
+            $query = "SELECT s.schedule_id, f.first_name, f.last_name, c.course_code, c.course_name, 
+                             r.room_name, sec.section_name, s.day_of_week, 
+                             TIME_FORMAT(s.start_time, '%h:%i %p') AS start_time_display,
+                             TIME_FORMAT(s.end_time, '%h:%i %p') AS end_time_display, s.status
+                      FROM schedules s
+                      JOIN faculty f ON s.faculty_id = f.faculty_id
+                      JOIN courses c ON s.course_id = c.course_id
+                      LEFT JOIN classrooms r ON s.room_id = r.room_id
+                      LEFT JOIN sections sec ON s.section_id = sec.section_id
+                      JOIN semesters sem ON s.semester_id = sem.semester_id
+                      WHERE f.department_id = :department_id";
+            if ($semesterId) {
+                $query .= " AND s.semester_id = :semester_id";
+            } else {
+                $query .= " AND sem.is_current = 1";
+            }
+            $query .= " ORDER BY f.last_name, s.day_of_week, s.start_time";
+
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':department_id', $departmentId, PDO::PARAM_INT);
+            if ($semesterId) {
+                $stmt->bindParam(':semester_id', $semesterId, PDO::PARAM_INT);
+            }
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log("Failed to fetch department schedules: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    public function updateRequestStatus($requestId, $status, $approvedBy)
+    {
+        try {
+            $query = "UPDATE schedule_requests 
+                      SET status = :status, updated_at = NOW() 
+                      WHERE request_id = :request_id AND status = 'pending'";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute([
+                ':request_id' => $requestId,
+                ':status' => $status
+            ]);
+            if ($stmt->rowCount() === 0) {
+                throw new Exception("Request not found or already processed");
+            }
+
+            // Log the action
+            $this->logActivity($approvedBy, 'update_request', "Updated request #$requestId to $status", 'schedule_requests', $requestId);
+        } catch (Exception $e) {
+            error_log("Failed to update request status: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    public function getFacultyByDepartment($departmentId)
+    {
+        try {
+            $query = "SELECT f.faculty_id, f.first_name, f.last_name, f.email, f.phone, f.position, f.employment_type,
+                             p1.program_name AS primary_program, p2.program_name AS secondary_program
+                      FROM faculty f
+                      LEFT JOIN programs p1 ON f.primary_program_id = p1.program_id
+                      LEFT JOIN programs p2 ON f.secondary_program_id = p2.program_id
+                      WHERE f.department_id = :department_id
+                      ORDER BY f.last_name, f.first_name";
+            $stmt = $this->db->prepare($query);
+            $stmt->bindParam(':department_id', $departmentId, PDO::PARAM_INT);
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log("Failed to fetch faculty by department: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    private function logActivity($userId, $actionType, $description, $entityType, $entityId)
+    {
+        try {
+            $query = "INSERT INTO activity_logs (user_id, action_type, action_description, entity_type, entity_id, created_at)
+                      VALUES (:user_id, :action_type, :description, :entity_type, :entity_id, NOW())";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute([
+                ':user_id' => $userId,
+                ':action_type' => $actionType,
+                ':description' => $description,
+                ':entity_type' => $entityType,
+                ':entity_id' => $entityId
+            ]);
+        } catch (Exception $e) {
+            error_log("Failed to log activity: " . $e->getMessage());
+        }
+    }
+
     public function generateFacultyLoadReport($departmentId)
     {
         $query = "SELECT CONCAT(f.first_name, ' ', f.last_name) AS faculty_name, 

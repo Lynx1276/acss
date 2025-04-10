@@ -16,7 +16,7 @@ class AuthService
         string $email,
         string $password,
         int $roleId,
-        int $departmentId,
+        ?int $departmentId, // Already nullable
         int $collegeId,
         string $firstName,
         string $lastName,
@@ -30,13 +30,13 @@ class AuthService
 
             // Insert into users table
             $stmt = $this->db->prepare("
-                INSERT INTO users (
-                    username, email, password_hash,
-                    first_name, last_name,
-                    role_id, department_id, college_id,
-                    is_active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
-            ");
+            INSERT INTO users (
+                username, email, password_hash,
+                first_name, last_name,
+                role_id, department_id, college_id,
+                is_active, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
+        ");
             $stmt->execute([
                 $username,
                 $email,
@@ -44,7 +44,7 @@ class AuthService
                 $firstName,
                 $lastName,
                 $roleId,
-                $departmentId,
+                $departmentId, // Can be NULL for Deans
                 $collegeId
             ]);
 
@@ -52,13 +52,16 @@ class AuthService
 
             // Insert into faculty table if role is Faculty (role_id = 6)
             if ($roleId === 6) {
+                if ($departmentId === null) {
+                    throw new Exception("Department ID is required for Faculty role");
+                }
                 $stmt = $this->db->prepare("
-                    INSERT INTO faculty (
-                        first_name, last_name, email, phone,
-                        position, employment_type, department_id,
-                        user_id, created_at, updated_at
-                    ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, NOW(), NOW())
-                ");
+                INSERT INTO faculty (
+                    first_name, last_name, email, phone,
+                    position, employment_type, department_id,
+                    user_id, created_at, updated_at
+                ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, NOW(), NOW())
+            ");
                 $stmt->execute([
                     $firstName,
                     $lastName,
@@ -84,11 +87,11 @@ class AuthService
         $db = (new Database())->connect();
         try {
             $stmt = $db->prepare("
-            SELECT u.*, r.role_name 
-            FROM users u
-            JOIN roles r ON u.role_id = r.role_id 
-            WHERE username = ? AND is_active = 1
-        ");
+                SELECT u.*, r.role_name 
+                FROM users u
+                JOIN roles r ON u.role_id = r.role_id 
+                WHERE username = ? AND is_active = 1
+            ");
             $stmt->execute([trim($username)]);
             $user = $stmt->fetch();
 
@@ -109,7 +112,7 @@ class AuthService
                 'email' => $user['email'],
                 'role_id' => (int)$user['role_id'],
                 'role_name' => $user['role_name'],
-                'department_id' => (int)$user['department_id'],
+                'department_id' => $user['department_id'] ? (int)$user['department_id'] : null, // Handle NULL department_id
                 'college_id' => (int)$user['college_id']
             ];
             error_log("Session set: " . json_encode($_SESSION['user']));
@@ -125,7 +128,7 @@ class AuthService
         string $email,
         string $password,
         int $roleId,
-        int $departmentId,
+        ?int $departmentId, // Changed to ?int
         int $collegeId,
         string $firstName,
         string $lastName
@@ -146,8 +149,11 @@ class AuthService
         }
 
         // Validate IDs
-        if ($roleId <= 0 || $departmentId <= 0 || $collegeId <= 0) {
-            throw new Exception("Invalid role, department, or college selection");
+        if ($roleId <= 0 || $collegeId <= 0) {
+            throw new Exception("Invalid role or college selection");
+        }
+        if ($roleId !== 5 && ($departmentId === null || $departmentId <= 0)) { // Allow null for Dean
+            throw new Exception("Invalid department selection");
         }
 
         // Validate email format
@@ -185,8 +191,11 @@ class AuthService
         return $stmt->rowCount() > 0;
     }
 
-    private function isValidDepartment(int $departmentId, int $collegeId): bool
+    private function isValidDepartment(?int $departmentId, int $collegeId): bool
     {
+        if ($departmentId === null) {
+            return true; // Valid for Dean
+        }
         $stmt = $this->db->prepare("
             SELECT 1 FROM departments 
             WHERE department_id = ? AND college_id = ?
@@ -225,7 +234,7 @@ class AuthService
         string $email,
         string $passwordHash,
         int $roleId,
-        int $departmentId,
+        ?int $departmentId, // Changed to ?int
         int $collegeId,
         string $firstName,
         string $lastName,
@@ -270,7 +279,7 @@ class AuthService
             'email' => $user['email'],
             'role_id' => (int)$user['role_id'],
             'role_name' => $user['role_name'],
-            'department_id' => (int)$user['department_id'],
+            'department_id' => $user['department_id'] ? (int)$user['department_id'] : null, // Handle NULL
             'college_id' => (int)$user['college_id'],
             'faculty_id' => $user['faculty_id'] ? (int)$user['faculty_id'] : null
         ];

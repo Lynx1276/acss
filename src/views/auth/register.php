@@ -9,10 +9,11 @@ $formData = $_SESSION['form_data'] ?? [];
 $colleges = $db->query("SELECT * FROM colleges ORDER BY college_name")->fetchAll();
 $roles = $db->query("SELECT * FROM roles WHERE role_id IN (1, 2, 3, 4, 5, 6) ORDER BY role_id")->fetchAll();
 
-// Get departments if college was pre-selected
+// Get departments if college was pre-selected (except for Dean)
 $selectedCollegeId = $formData['college_id'] ?? null;
+$selectedRoleId = $formData['role_id'] ?? null;
 $filteredDepartments = [];
-if ($selectedCollegeId) {
+if ($selectedCollegeId && ($selectedRoleId != 5)) { // Exclude Dean (role_id = 5)
     $stmt = $db->prepare("SELECT * FROM departments WHERE college_id = ? ORDER BY department_name");
     $stmt->execute([$selectedCollegeId]);
     $filteredDepartments = $stmt->fetchAll();
@@ -32,6 +33,10 @@ if ($selectedCollegeId) {
         .loading {
             opacity: 0.6;
             pointer-events: none;
+        }
+
+        .hidden {
+            display: none;
         }
     </style>
 </head>
@@ -62,7 +67,7 @@ if ($selectedCollegeId) {
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label for="first_name" class="block text-sm font-medium text-gray-700">First Name</label>
-                        <input type="text" id="first_name" name="first_name" required value="<?= htmlspecialchars($formData['first_name'] ?? '') ?>" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        <input type="text" id="first_name" name="first_name" required value="<?= htmlspecialchars($formData['first_name'] ?? '') ?>"  kclass="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                     </div>
                     <div>
                         <label for="last_name" class="block text-sm font-medium text-gray-700">Last Name</label>
@@ -118,7 +123,7 @@ if ($selectedCollegeId) {
                         </select>
                     </div>
                 </div>
-                <!-- College and Department Selection -->
+                <!-- College Selection -->
                 <div>
                     <label for="college_id" class="block text-sm font-medium text-gray-700">College</label>
                     <select id="college_id" name="college_id" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
@@ -130,9 +135,10 @@ if ($selectedCollegeId) {
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div>
+                <!-- Department Selection (hidden for Dean) -->
+                <div id="department_field" class="<?= ($selectedRoleId == 5) ? 'hidden' : '' ?>">
                     <label for="department_id" class="block text-sm font-medium text-gray-700">Department</label>
-                    <select id="department_id" name="department_id" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                    <select id="department_id" name="department_id" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                         <option value="">Select department</option>
                         <?php foreach ($filteredDepartments as $dept): ?>
                             <option value="<?= $dept['department_id'] ?>" <?= ($formData['department_id'] ?? '') == $dept['department_id'] ? 'selected' : '' ?>>
@@ -157,11 +163,13 @@ if ($selectedCollegeId) {
 
     <script>
         function validateForm() {
+            const roleSelect = document.getElementById('role_id');
             const deptSelect = document.getElementById('department_id');
             const password = document.getElementById('password').value;
             const confirmPassword = document.getElementById('confirm_password').value;
 
-            if (deptSelect.value === "") {
+            // Only validate department if role is not Dean (role_id = 5)
+            if (roleSelect.value !== '5' && deptSelect.value === "") {
                 alert("Please select a department");
                 deptSelect.focus();
                 return false;
@@ -177,15 +185,19 @@ if ($selectedCollegeId) {
             const roleSelect = document.getElementById('role_id');
             const facultyFields = document.getElementById('faculty_fields');
             const collegeSelect = document.getElementById('college_id');
+            const deptField = document.getElementById('department_field');
             const deptSelect = document.getElementById('department_id');
 
-            function toggleFacultyFields() {
+            function toggleFields() {
+                // Show faculty fields only for Faculty (role_id = 6)
                 facultyFields.classList.toggle('hidden', roleSelect.value !== '6');
+                // Show department field for all roles except Dean (role_id = 5)
+                deptField.classList.toggle('hidden', roleSelect.value === '5');
             }
 
             collegeSelect.addEventListener('change', function() {
                 const collegeId = this.value;
-                if (!collegeId) {
+                if (!collegeId || roleSelect.value === '5') { // Skip for Dean
                     deptSelect.innerHTML = '<option value="">Select department</option>';
                     return;
                 }
@@ -221,10 +233,17 @@ if ($selectedCollegeId) {
                     });
             });
 
-            toggleFacultyFields();
-            roleSelect.addEventListener('change', toggleFacultyFields);
+            toggleFields();
+            roleSelect.addEventListener('change', function() {
+                toggleFields();
+                if (this.value !== '5') {
+                    collegeSelect.dispatchEvent(new Event('change')); // Reload departments if not Dean
+                } else {
+                    deptSelect.innerHTML = '<option value="">Select department</option>'; // Clear for Dean
+                }
+            });
 
-            if (collegeSelect.value) {
+            if (collegeSelect.value && roleSelect.value !== '5') {
                 collegeSelect.dispatchEvent(new Event('change'));
             }
         });
