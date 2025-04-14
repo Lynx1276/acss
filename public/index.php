@@ -50,6 +50,10 @@ function handleChairRoutes($path)
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->editFaculty();
             exit;
+        case '/chair/faculty_availability':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->facultyAvailability();
+            exit;
         case '/chair/courses':
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->courses();
@@ -107,7 +111,7 @@ function handleDeanRoutes($path)
     switch ($path) {
         case '/dean/dashboard':
             require_once __DIR__ . '/../src/controllers/DeanController.php'; // Fixed path
-           (new DeanController())->dashboard();
+            (new DeanController())->dashboard();
             break;
         case '/dean/schedule':
             require_once __DIR__ . '/../src/controllers/DeanController.php';

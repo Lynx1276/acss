@@ -57,7 +57,7 @@ class ChairController {
             if (!file_exists($fullPath)) {
                 throw new Exception("View file not found: $viewFile");
             }
-
+                
             // Pass data to view
             extract(array_merge($stats, $scheduleData, [
                 'semesters' => $semesters,
@@ -168,6 +168,123 @@ class ChairController {
             $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
             header('Location: /chair/faculty');
             exit;
+        }
+    }
+
+    public function facultyAvailability()
+    {
+        AuthMiddleware::handle('chair');
+        try {
+            if (!isset($_SESSION['user']['department_id'])) {
+                throw new Exception("Unauthorized access");
+            }
+
+            $departmentId = $_SESSION['user']['department_id'];
+            $currentSemester = $this->schedulingService->getCurrentSemester();
+            $semesterId = $currentSemester['semester_id'];
+
+            // Handle form submission to update availability
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_availability'])) {
+                $facultyId = $_POST['faculty_id'] ?? null;
+                $dayOfWeek = $_POST['day_of_week'] ?? null;
+                $startTime = $_POST['start_time'] ?? null;
+                $endTime = $_POST['end_time'] ?? null;
+                $isAvailable = isset($_POST['is_available']) ? 1 : 0;
+                $preferenceLevel = $_POST['preference_level'] ?? 'Neutral';
+                $reason = $_POST['reason'] ?? null;
+
+                if ($facultyId && $dayOfWeek && $startTime && $endTime) {
+                    $this->updateFacultyAvailability(
+                        $facultyId,
+                        $semesterId,
+                        $dayOfWeek,
+                        $startTime,
+                        $endTime,
+                        $isAvailable,
+                        $preferenceLevel,
+                        $reason
+                    );
+                    $_SESSION['flash'] = ['type' => 'success', 'message' => 'Availability updated successfully'];
+                    header('Location: /chair/faculty_availability');
+                    exit;
+                }
+            }
+
+            // Get faculty members and their availability
+            $faculty = $this->schedulingService->getFacultyMembers($departmentId);
+            $availability = [];
+
+            foreach ($faculty as $member) {
+                $availability[$member['faculty_id']] = $this->schedulingService->getFacultyAvailabilityForSemester(
+                    $member['faculty_id'],
+                    $semesterId
+                );
+            }
+
+            $stats = ['pendingApprovals' => count($this->schedulingService->getPendingApprovals($departmentId))];
+
+            require __DIR__ . '/../views/chair/faculty_availability.php';
+        } catch (Exception $e) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
+            header('Location: /chair/faculty_availability');
+            exit;
+        }
+    }
+
+    private function updateFacultyAvailability($facultyId, $semesterId, $dayOfWeek, $startTime, $endTime, $isAvailable, $preferenceLevel, $reason)
+    {
+        // Check if availability already exists
+        $query = "SELECT availability_id FROM faculty_availability 
+              WHERE faculty_id = :faculty_id 
+              AND semester_id = :semester_id
+              AND day_of_week = :day_of_week
+              AND start_time = :start_time
+              AND end_time = :end_time";
+
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([
+            ':faculty_id' => $facultyId,
+            ':semester_id' => $semesterId,
+            ':day_of_week' => $dayOfWeek,
+            ':start_time' => $startTime,
+            ':end_time' => $endTime
+        ]);
+
+        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($existing) {
+            // Update existing record
+            $updateQuery = "UPDATE faculty_availability SET 
+                        is_available = :is_available,
+                        preference_level = :preference_level,
+                        reason = :reason
+                        WHERE availability_id = :availability_id";
+
+            $stmt = $this->db->prepare($updateQuery);
+            $stmt->execute([
+                ':is_available' => $isAvailable,
+                ':preference_level' => $preferenceLevel,
+                ':reason' => $reason,
+                ':availability_id' => $existing['availability_id']
+            ]);
+        } else {
+            // Insert new record
+            $insertQuery = "INSERT INTO faculty_availability 
+                       (faculty_id, semester_id, day_of_week, start_time, end_time, is_available, preference_level, reason)
+                       VALUES 
+                       (:faculty_id, :semester_id, :day_of_week, :start_time, :end_time, :is_available, :preference_level, :reason)";
+
+            $stmt = $this->db->prepare($insertQuery);
+            $stmt->execute([
+                ':faculty_id' => $facultyId,
+                ':semester_id' => $semesterId,
+                ':day_of_week' => $dayOfWeek,
+                ':start_time' => $startTime,
+                ':end_time' => $endTime,
+                ':is_available' => $isAvailable,
+                ':preference_level' => $preferenceLevel,
+                ':reason' => $reason
+            ]);
         }
     }
 
@@ -519,6 +636,7 @@ class ChairController {
         }
     }
 
+    // In ChairController.php
     public function generateSchedule()
     {
         AuthMiddleware::handle('chair');
@@ -536,31 +654,44 @@ class ChairController {
             $currentSemester = $schedulingService->getCurrentSemester();
             $selectedSemesterId = $currentSemester['semester_id'];
 
-            // Check for offerings
-            $offerings = $schedulingService->getCourseOfferings($selectedSemesterId, $departmentId);
-            $hasOfferings = !empty($offerings);
+            // Handle form submissions
+            $generatedSchedule = [];
+            if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                if (isset($_POST['generate'])) {
+                    $selectedSemesterId = (int)($_POST['semester_id'] ?? $selectedSemesterId);
+                    $maxSections = (int)($_POST['max_sections'] ?? 5);
+                    $algorithm = $_POST['algorithm'] ?? 'basic';
+                    $constraints = $_POST['constraints'] ?? [];
+
+                    $generatedSchedule = $schedulingService->generateSchedule(
+                        $selectedSemesterId,
+                        $departmentId,
+                        $maxSections,
+                        $constraints
+                    );
+
+                    // Store in session for later saving
+                    $_SESSION['generated_schedule'] = $generatedSchedule;
+                    $_SESSION['generated_semester'] = $selectedSemesterId;
+                } elseif (isset($_POST['save_schedule'])) {
+                    $scheduleData = json_decode($_POST['schedule_data'], true);
+                    $selectedSemesterId = (int)($_POST['semester_id'] ?? $selectedSemesterId);
+
+                    if ($schedulingService->saveGeneratedSchedule($scheduleData, $selectedSemesterId)) {
+                        $_SESSION['flash'] = ['type' => 'success', 'message' => 'Schedule saved successfully'];
+                        header("Location: semester_id=$selectedSemesterId");
+                        exit;
+                    } else {
+                        throw new Exception("Failed to save schedule");
+                    }
+                }
+            }
 
             // Other data
             $courses = $schedulingService->getDepartmentCourses($departmentId);
             $faculty = $schedulingService->getFacultyMembers($departmentId);
             $classrooms = $schedulingService->getAvailableClassrooms();
             $stats = ['pendingApprovals' => count($schedulingService->getPendingApprovals($departmentId))];
-
-            // Handle form submissions
-            $generatedSchedule = [];
-            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate'])) {
-                $selectedSemesterId = (int)($_POST['semester_id'] ?? $selectedSemesterId);
-                $maxSections = (int)($_POST['max_sections'] ?? 5);
-                $algorithm = $_POST['algorithm'] ?? 'basic';
-                $constraints = $_POST['constraints'] ?? [];
-
-                $generatedSchedule = $schedulingService->generateSchedule(
-                    $selectedSemesterId,
-                    $departmentId,
-                    $maxSections,
-                    $constraints
-                );
-            }
 
             // Include the view with all prepared data
             require __DIR__ . '/../views/chair/generate_schedule.php';
@@ -665,12 +796,84 @@ class ChairController {
             $departmentId = $_SESSION['user']['department_id'];
             $curricula = $this->schedulingService->getDepartmentCurricula($departmentId);
             $courses = $this->schedulingService->getDepartmentCourses($departmentId);
-            $stats = ['pendingApprovals' => count($this->schedulingService->getPendingApprovals($departmentId))];
+
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_curriculum'])) {
+                $curriculumId = null;
+                if (isset($_FILES['curriculum_file']) && $_FILES['curriculum_file']['error'] === UPLOAD_ERR_OK) {
+                    // File upload
+                    $curriculumId = $this->schedulingService->createCurriculumFromFile(
+                        $departmentId,
+                        $_FILES['curriculum_file'],
+                        $_SESSION['user']['user_id']
+                    );
+                } else {
+                    // Manual entry
+                    $data = [
+                        'name' => $_POST['name'] ?? throw new Exception("Curriculum name required"),
+                        'code' => $_POST['code'] ?? throw new Exception("Curriculum code required"),
+                        'effective_year' => $_POST['effective_year'] ?? throw new Exception("Effective year required"),
+                        'total_units' => $_POST['total_units'] ?? throw new Exception("Total units required"),
+                        'program_name' => $_POST['program_name'] ?? throw new Exception("Program name required"),
+                        'courses' => $_POST['courses'] ?? []
+                    ];
+                    $curriculumId = $this->schedulingService->createCurriculumManually(
+                        $departmentId,
+                        $data,
+                        $_SESSION['user']['user_id']
+                    );
+                }
+
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Curriculum created successfully'];
+                header('Location: /chair/curriculum');
+                exit;
+            }
 
             require __DIR__ . '/../views/chair/curriculum.php';
         } catch (Exception $e) {
             error_log("ChairController error: " . $e->getMessage());
-            $this->showError("An error occurred while loading the curriculum page");
+            $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
+            header('Location: /chair/curriculum');
+            exit;
+        }
+    }
+
+    public function uploadCurriculumFile()
+    {
+        AuthMiddleware::handle('chair');
+        try {
+            if (!isset($_SESSION['user']['department_id'])) {
+                throw new Exception("Unauthorized access");
+            }
+
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['upload_file']) && isset($_FILES['curriculum_file'])) {
+                $curriculumId = $_POST['curriculum_id'] ?? throw new Exception("Curriculum ID required");
+
+                $query = "SELECT 1 FROM curricula WHERE curriculum_id = :curriculum_id AND department_id = :department_id";
+                $stmt = $this->db->prepare($query);
+                $stmt->execute([
+                    ':curriculum_id' => $curriculumId,
+                    ':department_id' => $_SESSION['user']['department_id']
+                ]);
+                if (!$stmt->fetch()) {
+                    throw new Exception("Curriculum not found or not accessible");
+                }
+
+                $this->schedulingService->updateCurriculumFile(
+                    $curriculumId,
+                    $_FILES['curriculum_file'],
+                    $_SESSION['user']['user_id']
+                );
+
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'File uploaded successfully'];
+                header('Location: /chair/curriculum');
+                exit;
+            }
+
+            throw new Exception("Invalid request");
+        } catch (Exception $e) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
+            header('Location: /chair/curriculum');
+            exit;
         }
     }
 

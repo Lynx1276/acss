@@ -3,41 +3,19 @@ require_once __DIR__ . '/../../config/Database.php';
 require_once __DIR__ . '/../../services/SchedulingService.php';
 require_once __DIR__ . '/../../middleware/AuthMiddleware.php';
 
-$currentUri = $_SERVER['REQUEST_URI'];
 AuthMiddleware::handle('chair');
-
-$departmentId = $_SESSION['user']['department_id'] ?? null;
-if (!$departmentId) {
-    die("Department ID not found in session");
-}
-
-$schedulingService = new SchedulingService();
 $db = (new Database())->connect();
+$schedulingService = new SchedulingService();
 
-// Get curricula
-$curricula = $schedulingService->getDepartmentCurricula($departmentId);
-
-// Define $stats for sidebar
-$pendingApprovalsData = $schedulingService->getPendingApprovals($departmentId);
-$stats = [
-    'pendingApprovals' => is_array($pendingApprovalsData) ? count($pendingApprovalsData) : (int)($pendingApprovalsData ?? 0)
-];
-
-// Handle POST for creating curriculum
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_curriculum'])) {
-    $data = [
-        'name' => $_POST['name'] ?? '',
-        'code' => $_POST['code'] ?? '',
-        'description' => $_POST['description'] ?? '',
-        'courses' => $_POST['courses'] ?? []
-    ];
-    $schedulingService->createCurriculum($departmentId, $data);
-    header('Location: /chair/curriculum');
+try {
+    $departmentId = $_SESSION['user']['department_id'] ?? throw new Exception("Department ID not set");
+    $curricula = $schedulingService->getDepartmentCurricula($departmentId);
+    $courses = $schedulingService->getDepartmentCourses($departmentId);
+} catch (Exception $e) {
+    $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
+    header('Location: /chair/dashboard');
     exit;
 }
-
-// Get courses for selection
-$courses = $schedulingService->getDepartmentCourses($departmentId);
 ?>
 
 <!DOCTYPE html>
@@ -46,16 +24,20 @@ $courses = $schedulingService->getDepartmentCourses($departmentId);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Curriculum Management | PRMSU</title>
+    <title>Curriculum Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* Reuse styles */
+        /* PRMSU Color Palette */
         :root {
             --prmsu-blue: #0056b3;
             --prmsu-gold: #FFD700;
             --prmsu-light: #f8f9fa;
             --prmsu-dark: #343a40;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
         .sidebar {
@@ -93,14 +75,50 @@ $courses = $schedulingService->getDepartmentCourses($departmentId);
             color: var(--prmsu-dark);
         }
     </style>
+    <script>
+        function addCourseRow() {
+            const container = document.getElementById('course-rows');
+            const row = document.createElement('div');
+            row.className = 'course-row grid grid-cols-5 gap-2 mb-2';
+            row.innerHTML = `
+                <input type="text" name="courses[][code]" placeholder="Code" required class="rounded-md border-gray-300 shadow-sm">
+                <input type="text" name="courses[][name]" placeholder="Name" required class="rounded-md border-gray-300 shadow-sm">
+                <select name="courses[][year_level]" required class="rounded-md border-gray-300 shadow-sm">
+                    <option value="1st Year">1st Year</option>
+                    <option value="2nd Year">2nd Year</option>
+                    <option value="3rd Year">3rd Year</option>
+                    <option value="4th Year">4th Year</option>
+                </select>
+                <select name="courses[][semester]" required class="rounded-md border-gray-300 shadow-sm">
+                    <option value="1st">1st</option>
+                    <option value="2nd">2nd</option>
+                    <option value="Summer">Summer</option>
+                </select>
+                <select name="courses[][subject_type]" required class="rounded-md border-gray-300 shadow-sm">
+                    <option value="General Education">General Education</option>
+                    <option value="Major">Major</option>
+                    <option value="Elective">Elective</option>
+                </select>
+                <input type="number" name="courses[][units]" placeholder="Units" min="1" value="3" class="rounded-md border-gray-300 shadow-sm">
+                <input type="number" name="courses[][lecture_hours]" placeholder="Lec Hours" min="0" value="3" class="rounded-md border-gray-300 shadow-sm">
+                <input type="number" name="courses[][lab_hours]" placeholder="Lab Hours" min="0" value="0" class="rounded-md border-gray-300 shadow-sm">
+                <button type="button" onclick="this.parentElement.remove()" class="text-red-600 hover:text-red-800"><i class="fas fa-trash"></i></button>
+            `;
+            container.appendChild(row);
+        }
+
+        function toggleInputMethod(method) {
+            document.getElementById('file-upload').classList.add('hidden');
+            document.getElementById('manual-entry').classList.add('hidden');
+            document.getElementById(method).classList.remove('hidden');
+        }
+    </script>
 </head>
 
 <body class="bg-gray-50">
     <?php include __DIR__ . '/../partials/chair/sidebar.php'; ?>
-
     <div class="flex-1 flex flex-col overflow-hidden md:ml-64">
         <?php include __DIR__ . '/../partials/chair/header.php'; ?>
-
         <main class="flex-1 overflow-y-auto p-6">
             <div class="max-w-7xl mx-auto">
                 <div class="flex justify-between items-center mb-6">
@@ -118,8 +136,10 @@ $courses = $schedulingService->getDepartmentCourses($departmentId);
                             <tr>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Code</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Courses</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Uploaded By</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                             </tr>
                         </thead>
@@ -128,13 +148,45 @@ $courses = $schedulingService->getDepartmentCourses($departmentId);
                                 <tr>
                                     <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($curriculum['curriculum_name']) ?></td>
                                     <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($curriculum['curriculum_code']) ?></td>
-                                    <td class="px-6 py-4 whitespace-nowrap"><?= $curriculum['course_count'] ?></td>
+                                    <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($curriculum['effective_year']) ?></td>
                                     <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($curriculum['status']) ?></td>
                                     <td class="px-6 py-4 whitespace-nowrap">
-                                        <a href="/chair/curriculum/versions?id=<?= $curriculum['curriculum_id'] ?>"
-                                            class="text-blue-600 hover:text-blue-800 mr-2"><i class="fas fa-eye"></i> Versions</a>
+                                        <?php if ($curriculum['file_path']): ?>
+                                            <a href="/Uploads/curricula/<?= htmlspecialchars($curriculum['file_path']) ?>"
+                                                class="text-blue-600 hover:text-blue-800" download>
+                                                <?= htmlspecialchars($curriculum['file_name']) ?>
+                                            </a>
+                                        <?php else: ?>
+                                            No file
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($curriculum['username']) ?></td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <button onclick="document.getElementById('uploadFileModal<?= $curriculum['curriculum_id'] ?>').classList.remove('hidden')"
+                                            class="text-green-600 hover:text-green-800"><i class="fas fa-upload"></i> Upload</button>
                                     </td>
                                 </tr>
+                                <!-- Upload File Modal -->
+                                <div id="uploadFileModal<?= $curriculum['curriculum_id'] ?>" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center">
+                                    <div class="bg-white rounded-lg p-6 w-full max-w-md">
+                                        <h2 class="text-xl font-semibold mb-4">Upload Curriculum File</h2>
+                                        <form method="POST" action="/chair/curriculum/upload" enctype="multipart/form-data">
+                                            <input type="hidden" name="curriculum_id" value="<?= $curriculum['curriculum_id'] ?>">
+                                            <div class="mb-4">
+                                                <label class="block text-sm font-medium text-gray-700">File (DOC, PDF, Excel) *</label>
+                                                <input type="file" name="curriculum_file" accept=".doc,.docx,.pdf,.xlsx" required
+                                                    class="w-full rounded-md border-gray-300 shadow-sm">
+                                            </div>
+                                            <div class="flex justify-end space-x-3">
+                                                <button type="button"
+                                                    onclick="document.getElementById('uploadFileModal<?= $curriculum['curriculum_id'] ?>').classList.add('hidden')"
+                                                    class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md">Cancel</button>
+                                                <button type="submit" name="upload_file"
+                                                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md">Upload</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
@@ -142,37 +194,66 @@ $courses = $schedulingService->getDepartmentCourses($departmentId);
 
                 <!-- Create Curriculum Modal -->
                 <div id="createCurriculumModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center">
-                    <div class="bg-white rounded-lg p-6 w-full max-w-md">
+                    <div class="bg-white rounded-lg p-6 w-full max-w-2xl">
                         <h2 class="text-xl font-semibold mb-4">Create New Curriculum</h2>
-                        <form method="POST">
+                        <form method="POST" enctype="multipart/form-data">
                             <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700">Name</label>
-                                <input type="text" name="name" required class="w-full rounded-md border-gray-300 shadow-sm">
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700">Code</label>
-                                <input type="text" name="code" required class="w-full rounded-md border-gray-300 shadow-sm">
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700">Description</label>
-                                <textarea name="description" class="w-full rounded-md border-gray-300 shadow-sm"></textarea>
-                            </div>
-                            <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700">Courses</label>
-                                <select name="courses[]" multiple class="w-full rounded-md border-gray-300 shadow-sm h-32">
-                                    <?php foreach ($courses as $course): ?>
-                                        <option value="<?= $course['course_id'] ?>">
-                                            <?= htmlspecialchars($course['course_code'] . ' - ' . $course['course_name']) ?>
-                                        </option>
-                                    <?php endforeach; ?>
+                                <label class="block text-sm font-medium text-gray-700">Input Method</label>
+                                <select onchange="toggleInputMethod(this.value)" class="w-full rounded-md border-gray-300 shadow-sm">
+                                    <option value="file-upload">Upload File</option>
+                                    <option value="manual-entry">Manual Entry</option>
                                 </select>
                             </div>
+
+                            <!-- File Upload -->
+                            <div id="file-upload" class="mb-4">
+                                <label class="block text-sm font-medium text-gray-700">Upload File (DOC, PDF, Excel) *</label>
+                                <input type="file" name="curriculum_file" accept=".doc,.docx,.pdf,.xlsx"
+                                    class="w-full rounded-md border-gray-300 shadow-sm">
+                            </div>
+
+                            <!-- Manual Entry -->
+                            <div id="manual-entry" class="hidden">
+                                <div class="mb-4">
+                                    <label class="block text-sm font-medium text-gray-700">Name *</label>
+                                    <input type="text" name="name" placeholder="e.g., BS Information Technology Series 2022" required
+                                        class="w-full rounded-md border-gray-300 shadow-sm">
+                                </div>
+                                <div class="mb-4">
+                                    <label class="block text-sm font-medium text-gray-700">Code *</label>
+                                    <input type="text" name="code" placeholder="e.g., BSIT-2022" required
+                                        class="w-full rounded-md border-gray-300 shadow-sm">
+                                </div>
+                                <div class="mb-4">
+                                    <label class="block text-sm font-medium text-gray-700">Effective Year *</label>
+                                    <input type="number" name="effective_year" placeholder="2022" min="1900" max="2099" required
+                                        class="w-full rounded-md border-gray-300 shadow-sm">
+                                </div>
+                                <div class="mb-4">
+                                    <label class="block text-sm font-medium text-gray-700">Total Units *</label>
+                                    <input type="number" name="total_units" placeholder="120" required
+                                        class="w-full rounded-md border-gray-300 shadow-sm">
+                                </div>
+                                <div class="mb-4">
+                                    <label class="block text-sm font-medium text-gray-700">Program Name *</label>
+                                    <input type="text" name="program_name" placeholder="e.g., BS Information Technology" required
+                                        class="w-full rounded-md border-gray-300 shadow-sm">
+                                </div>
+                                <div class="mb-4">
+                                    <label class="block text-sm font-medium text-gray-700">Courses</label>
+                                    <div id="course-rows" class="mb-2"></div>
+                                    <button type="button" onclick="addCourseRow()"
+                                        class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md flex items-center">
+                                        <i class="fas fa-plus mr-2"></i> Add Course
+                                    </button>
+                                </div>
+                            </div>
+
                             <div class="flex justify-end space-x-3">
                                 <button type="button" onclick="document.getElementById('createCurriculumModal').classList.add('hidden')"
                                     class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md">Cancel</button>
-                                <button type="submit" name="create_curriculum" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md">
-                                    Create Curriculum
-                                </button>
+                                <button type="submit" name="create_curriculum"
+                                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md">Create</button>
                             </div>
                         </form>
                     </div>

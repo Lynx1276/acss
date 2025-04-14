@@ -1,0 +1,92 @@
+
+CREATE TABLE `faculty` (
+  `id` int(11) NOT NULL,
+  `name` varchar(100) DEFAULT NULL,
+  `department` varchar(100) DEFAULT NULL,
+  `employment_status` enum('REGULAR','COS') DEFAULT NULL,
+  `vsl` enum('YES','NO') DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `subject` (
+  `id` int(11) NOT NULL,
+  `curriculum_id` int(11) DEFAULT NULL,
+  `semester` enum('1st Semester','2nd Semester','3rd Trimester') DEFAULT NULL,
+  `subject_code` varchar(10) DEFAULT NULL,
+  `subject_name` varchar(100) DEFAULT NULL,
+  `rm_unit` int(11) DEFAULT NULL,
+  `lab_unit` int(11) DEFAULT NULL,
+  `hours` int(11) DEFAULT NULL,
+  `total_hours` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE `curriculum` (
+  `id` int(11) NOT NULL,
+  `year` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+FOR CURRICULUM 2019
+-- 1st Semester
+INSERT INTO subject (curriculum_id, semester, subject_code, subject_name, rm_unit, lab_unit, hours, total_hours)
+VALUES
+(1, '1st Semester', 'CS101', 'Computer Fundamentals', 3, 0, 3, 48),
+(1, '1st Semester', 'MATH101', 'Discrete Math', 3, 0, 3, 48);
+
+-- 2nd Semester
+INSERT INTO subject (curriculum_id, semester, subject_code, subject_name, rm_unit, lab_unit, hours, total_hours)
+VALUES
+(1, '2nd Semester', 'ITC', 'Introduction to Computing', 3, 3, 3, 48),
+(1, '2nd Semester', 'HCI', 'Human Computer Interaction', 3, 3, 2, 30);
+
+-- 3rd Trimester
+INSERT INTO subject (curriculum_id, semester, subject_code, subject_name, rm_unit, lab_unit, hours, total_hours)
+VALUES
+(1, '3rd Trimester', 'WD101', 'Web Design Fundamentals', 2, 2, 2, 36),
+(1, '3rd Trimester', 'NET101', 'Computer Networking Basics', 3, 0, 2, 36);
+🔹 For Curriculum 2022 (ID: 2)
+sql
+Copy
+Edit
+-- 1st Semester
+INSERT INTO subject (curriculum_id, semester, subject_code, subject_name, rm_unit, lab_unit, hours, total_hours)
+VALUES
+(2, '1st Semester', 'PROG101', 'Programming 1', 2, 1, 3, 54),
+(2, '1st Semester', 'MATH102', 'Linear Algebra', 3, 0, 3, 48),
+(2, '1st Semester', 'ENG101', 'Technical Writing', 3, 0, 2, 36);
+
+-- 2nd Semester
+INSERT INTO subject (curriculum_id, semester, subject_code, subject_name, rm_unit, lab_unit, hours, total_hours)
+VALUES
+(2, '2nd Semester', 'OOP202', 'Object-Oriented Programming', 3, 1, 3, 54),
+(2, '2nd Semester', 'DSA201', 'Data Structures & Algorithms', 3, 1, 3, 54),
+(2, '2nd Semester', 'SYSAN', 'Systems Analysis & Design', 3, 0, 2, 36);
+
+-- 3rd Trimester
+INSERT INTO subject (curriculum_id, semester, subject_code, subject_name, rm_unit, lab_unit, hours, total_hours)
+VALUES
+(2, '3rd Trimester', 'WEB201', 'Web Systems & Technologies', 2, 2, 3, 54),
+(2, '3rd Trimester', 'MOB101', 'Mobile App Development', 2, 2, 2, 36),
+(2, '3rd Trimester', 'PROJ202', 'Capstone Proposal', 1, 1, 1, 24);
+🔹 For Curriculum 2024 (ID: 3)
+sql
+Copy
+Edit
+-- 1st Semester
+INSERT INTO subject (curriculum_id, semester, subject_code, subject_name, rm_unit, lab_unit, hours, total_hours)
+VALUES
+(3, '1st Semester', 'AI101', 'Intro to AI', 3, 1, 3, 54),
+(3, '1st Semester', 'STAT101', 'Statistics for Computing', 3, 0, 3, 48),
+(3, '1st Semester', 'SOFTENG', 'Software Engineering', 3, 1, 2, 36);
+
+-- 2nd Semester
+INSERT INTO subject (curriculum_id, semester, subject_code, subject_name, rm_unit, lab_unit, hours, total_hours)
+VALUES
+(3, '2nd Semester', 'SEC101', 'Cybersecurity Basics', 2, 2, 3, 54),
+(3, '2nd Semester', 'DBSYS', 'Database Systems', 3, 1, 3, 54),
+(3, '2nd Semester', 'IOT202', 'Internet of Things', 2, 2, 2, 36);
+
+-- 3rd Trimester
+INSERT INTO subject (curriculum_id, semester, subject_code, subject_name, rm_unit, lab_unit, hours, total_hours)
+VALUES
+(3, '3rd Trimester', 'ML101', 'Machine Learning', 3, 1, 3, 54),
+(3, '3rd Trimester', 'CLOUD202', 'Cloud Computing', 2, 2, 2, 36),
+(3, '3rd Trimester', 'PROJ303', 'Capstone Implementation', 2, 2, 3, 54);

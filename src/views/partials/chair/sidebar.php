@@ -85,6 +85,12 @@ if (!isset($stats)) {
             <span>Faculty</span>
         </a>
 
+        <!-- Faculty -->
+        <a href="/chair/faculty_availability" class="nav-item flex items-center p-3 rounded-lg text-white mb-1 <?= strpos($currentUri, '/chair/faculty_availability') !== false ? 'active' : '' ?>">
+            <i class="fas fa-chalkboard-teacher mr-3"></i>
+            <span>Faculty Availability</span>
+        </a>
+
         <!-- Courses -->
         <a href="/chair/courses" class="nav-item flex items-center p-3 rounded-lg text-white mb-1 <?= strpos($currentUri, '/chair/courses') !== false ? 'active' : '' ?>">
             <i class="fas fa-book mr-3"></i>

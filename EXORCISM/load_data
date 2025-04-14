@@ -1,0 +1,47 @@
+<?php
+// Database connection
+$host = "localhost";
+$user = "root";
+$password = ""; // change if you have a password
+$database = "josa"; // change this to your actual DB name
+
+$conn = new mysqli($host, $user, $password, $database);
+
+// Check connection
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
+}
+
+// Set headers to return JSON
+header('Content-Type: application/json');
+
+// Check which type is requested
+if (isset($_GET['type'])) {
+    $type = $_GET['type'];
+
+    if ($type === 'faculty') {
+        $result = $conn->query("SELECT id, name FROM faculty");
+        $data = [];
+        while ($row = $result->fetch_assoc()) {
+            $data[] = $row;
+        }
+        echo json_encode($data);
+    } elseif ($type === 'subject') {
+        $result = $conn->query("SELECT id, subject_code, subject_name FROM subject");
+        $data = [];
+        while ($row = $result->fetch_assoc()) {
+            $data[] = [
+                'id' => $row['id'],
+                'label' => $row['subject_code'] . ' - ' . $row['subject_name']
+            ];
+        }
+        echo json_encode($data);
+    } else {
+        echo json_encode(["error" => "Invalid type requested."]);
+    }
+} else {
+    echo json_encode(["error" => "No type specified."]);
+}
+
+$conn->close();
+?>

@@ -36,7 +36,7 @@ class FacultyController
             // Get current URI for active menu highlighting
             $currentUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-            $viewFile = 'faculty/dashboard.php';
+            $viewFile = '/faculty/dashboard.php';
             $fullPath = __DIR__ . '/../views/' . $viewFile;
 
             if (!file_exists($fullPath)) {
