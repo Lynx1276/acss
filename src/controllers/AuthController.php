@@ -153,7 +153,7 @@ class AuthController
                 }
             }
 
-            // Validate required fields (exclude department_id for Dean)
+            // Validate required fields
             $requiredFields = [
                 'username',
                 'email',
@@ -161,9 +161,20 @@ class AuthController
                 'confirm_password',
                 'role_id',
                 'college_id',
+                'department_id',
                 'first_name',
-                'last_name'
+                'last_name',
+                'employee_id'
             ];
+
+            // Faculty-specific required fields
+            if ((int)$_POST['role_id'] === 6) {
+                $requiredFields = array_merge($requiredFields, [
+                    'academic_rank',
+                    'classification',
+                    'employment_type'
+                ]);
+            }
 
             foreach ($requiredFields as $field) {
                 if (!isset($_POST[$field]) || trim($_POST[$field]) === '') {
@@ -179,34 +190,45 @@ class AuthController
             }
 
             $roleId = (int)$_POST['role_id'];
-            if ($roleId !== 5 && (empty($_POST['department_id']) || !is_numeric($_POST['department_id']))) {
-                throw new Exception("Please select a valid department");
+            $departmentId = (int)$_POST['department_id'];
+
+            // Validate department belongs to college
+            $stmt = $this->db->prepare("SELECT 1 FROM departments WHERE department_id = ? AND college_id = ?");
+            $stmt->execute([$departmentId, $_POST['college_id']]);
+            if ($stmt->rowCount() === 0) {
+                throw new Exception("Selected department doesn't belong to the chosen college");
             }
 
-            if ($roleId !== 5) {
-                $stmt = $this->db->prepare("SELECT 1 FROM departments WHERE department_id = ? AND college_id = ?");
-                $stmt->execute([$_POST['department_id'], $_POST['college_id']]);
-                if ($stmt->rowCount() === 0) {
-                    throw new Exception("Selected department doesn't belong to the chosen college");
-                }
+            // Check if employee ID already exists
+            $stmt = $this->db->prepare("SELECT 1 FROM users WHERE employee_id = ?");
+            $stmt->execute([$_POST['employee_id']]);
+            if ($stmt->rowCount() > 0) {
+                throw new Exception("Employee ID already exists");
             }
 
             // Prepare registration data
             $userData = [
+                'employee_id' => trim($_POST['employee_id']),
                 'username' => trim($_POST['username']),
                 'email' => trim($_POST['email']),
                 'password' => $_POST['password'],
                 'role_id' => $roleId,
-                'department_id' => ($roleId === 5) ? null : (int)$_POST['department_id'],
+                'department_id' => $departmentId,
                 'college_id' => (int)$_POST['college_id'],
                 'first_name' => trim($_POST['first_name']),
+                'middle_name' => trim($_POST['middle_name'] ?? ''),
                 'last_name' => trim($_POST['last_name']),
-                'position' => ($roleId == 6) ? ($_POST['position'] ?? 'Instructor') : null,
-                'employment_type' => ($roleId == 6) ? ($_POST['employment_type'] ?? 'Regular') : null
+                'suffix' => trim($_POST['suffix'] ?? ''),
+                'phone' => trim($_POST['phone'] ?? ''),
+                'academic_rank' => ($roleId == 6) ? ($_POST['academic_rank'] ?? 'Instructor') : null,
+                'classification' => ($roleId == 6) ? ($_POST['classification'] ?? null) : null,
+                'employment_type' => ($roleId == 6) ? ($_POST['employment_type'] ?? 'Regular') : null,
+                'primary_program_id' => ($roleId == 6) ? ($_POST['primary_program_id'] ?? null) : null
             ];
 
             // Register the user
             $this->authService->register(
+                $userData['employee_id'],
                 $userData['username'],
                 $userData['email'],
                 $userData['password'],
@@ -214,9 +236,14 @@ class AuthController
                 $userData['department_id'],
                 $userData['college_id'],
                 $userData['first_name'],
+                $userData['middle_name'],
                 $userData['last_name'],
-                $userData['position'],
-                $userData['employment_type']
+                $userData['suffix'],
+                $userData['phone'],
+                $userData['academic_rank'],
+                $userData['classification'],
+                $userData['employment_type'],
+                $userData['primary_program_id']
             );
 
             error_log("Registration complete for user: " . $userData['username']);

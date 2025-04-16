@@ -12,16 +12,22 @@ class AuthService
     }
 
     public function register(
+        string $employeeId,
         string $username,
         string $email,
         string $password,
         int $roleId,
-        ?int $departmentId, // Already nullable
+        int $departmentId,
         int $collegeId,
         string $firstName,
+        string $middleName,
         string $lastName,
-        ?string $position = null,
-        ?string $employmentType = null
+        string $suffix,
+        string $phone,
+        ?string $academicRank = null,
+        ?string $classification = null,
+        ?string $employmentType = null,
+        ?int $primaryProgramId = null
     ): bool {
         $this->db->beginTransaction();
 
@@ -30,21 +36,25 @@ class AuthService
 
             // Insert into users table
             $stmt = $this->db->prepare("
-            INSERT INTO users (
-                username, email, password_hash,
-                first_name, last_name,
-                role_id, department_id, college_id,
-                is_active, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
-        ");
+                INSERT INTO users (
+                    employee_id, username, email, password_hash,
+                    first_name, middle_name, last_name, suffix, phone,
+                    role_id, department_id, college_id,
+                    is_active, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
+            ");
             $stmt->execute([
+                $employeeId,
                 $username,
                 $email,
                 $passwordHash,
                 $firstName,
+                $middleName,
                 $lastName,
+                $suffix,
+                $phone,
                 $roleId,
-                $departmentId, // Can be NULL for Deans
+                $departmentId,
                 $collegeId
             ]);
 
@@ -52,23 +62,27 @@ class AuthService
 
             // Insert into faculty table if role is Faculty (role_id = 6)
             if ($roleId === 6) {
-                if ($departmentId === null) {
-                    throw new Exception("Department ID is required for Faculty role");
-                }
                 $stmt = $this->db->prepare("
-                INSERT INTO faculty (
-                    first_name, last_name, email, phone,
-                    position, employment_type, department_id,
-                    user_id, created_at, updated_at
-                ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, NOW(), NOW())
-            ");
+                    INSERT INTO faculty (
+                        employee_id, first_name, middle_name, last_name, suffix,
+                        email, phone, academic_rank, classification, employment_type,
+                        department_id, primary_program_id, user_id,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                ");
                 $stmt->execute([
+                    $employeeId,
                     $firstName,
+                    $middleName,
                     $lastName,
+                    $suffix,
                     $email,
-                    $position ?? 'Instructor',
-                    $employmentType ?? 'Regular',
+                    $phone,
+                    $academicRank,
+                    $classification,
+                    $employmentType,
                     $departmentId,
+                    $primaryProgramId,
                     $userId
                 ]);
             }
@@ -87,9 +101,10 @@ class AuthService
         $db = (new Database())->connect();
         try {
             $stmt = $db->prepare("
-                SELECT u.*, r.role_name 
+                SELECT u.*, r.role_name, f.faculty_id 
                 FROM users u
                 JOIN roles r ON u.role_id = r.role_id 
+                LEFT JOIN faculty f ON u.user_id = f.user_id
                 WHERE username = ? AND is_active = 1
             ");
             $stmt->execute([trim($username)]);
@@ -108,13 +123,20 @@ class AuthService
             // Set session
             $_SESSION['user'] = [
                 'id' => (int)$user['user_id'],
+                'employee_id' => $user['employee_id'],
                 'username' => $user['username'],
                 'email' => $user['email'],
                 'role_id' => (int)$user['role_id'],
                 'role_name' => $user['role_name'],
-                'department_id' => $user['department_id'] ? (int)$user['department_id'] : null, // Handle NULL department_id
-                'college_id' => (int)$user['college_id']
+                'department_id' => (int)$user['department_id'],
+                'college_id' => (int)$user['college_id'],
+                'faculty_id' => $user['faculty_id'] ? (int)$user['faculty_id'] : null,
+                'first_name' => $user['first_name'],
+                'middle_name' => $user['middle_name'],
+                'last_name' => $user['last_name'],
+                'suffix' => $user['suffix']
             ];
+
             error_log("Session set: " . json_encode($_SESSION['user']));
             return true;
         } catch (PDOException $e) {
