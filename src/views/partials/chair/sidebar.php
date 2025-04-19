@@ -98,8 +98,8 @@ if (!isset($stats)) {
         </a>
 
         <!-- Sections -->
-        <a href="/chair/section" class="nav-item flex items-center p-3 rounded-lg text-white mb-1 hover:bg-gray-700 <?= strpos($currentUri, '/chair/section') !== false ? 'bg-gray-700 border-l-4 border-yellow-500' : '' ?>">
-            <i class="fas fa-door-open mr-3 <?= strpos($currentUri, '/chair/section') !== false ? 'text-yellow-500' : 'text-gray-400' ?>"></i>
+        <a href="/chair/sections" class="nav-item flex items-center p-3 rounded-lg text-white mb-1 hover:bg-gray-700 <?= strpos($currentUri, '/chair/section') !== false ? 'bg-gray-700 border-l-4 border-yellow-500' : '' ?>">
+            <i class="fas fa-users mr-3 <?= strpos($currentUri, '/chair/section') !== false ? 'text-yellow-500' : 'text-gray-400' ?>"></i>
             <span>Sections</span>
         </a>
 

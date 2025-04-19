@@ -16,8 +16,11 @@ if (!$departmentId) {
 $schedulingService = new SchedulingService();
 $db = (new Database())->connect();
 
-// Get courses
-$courses = $schedulingService->getDepartmentCourses($departmentId);
+// Get year-level filter from GET parameter
+$yearLevelFilter = $_GET['year_level'] ?? null;
+
+// Get courses with year-level filter
+$courses = $schedulingService->getDepartmentCourses($departmentId, $yearLevelFilter);
 
 // Define $stats for sidebar
 $pendingApprovalsData = $schedulingService->getPendingApprovals($departmentId);
@@ -183,6 +186,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
             max-height: calc(100vh - 240px);
             border-radius: 8px;
         }
+
+        .search-bar:focus {
+            border-color: var(--prmsu-gold);
+            box-shadow: 0 0 0 3px rgba(239, 187, 15, 0.2);
+        }
+
+        .btn-primary {
+            background-color: var(--prmsu-gray-dark);
+            transition: background-color 0.2s ease;
+        }
+
+        .btn-primary:hover {
+            background-color: #4f4e4e;
+        }
     </style>
 </head>
 
@@ -194,12 +211,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
 
         <main class="flex-1 overflow-y-auto p-6">
             <div class="max-w-7xl mx-auto">
+                <!-- Flash Messages -->
+                <?php if (isset($_SESSION['flash'])): ?>
+                    <div class="mb-6 p-4 rounded-lg <?= $_SESSION['flash']['type'] === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700' ?>">
+                        <?= htmlspecialchars($_SESSION['flash']['message']) ?>
+                    </div>
+                    <?php unset($_SESSION['flash']); ?>
+                <?php endif; ?>
+
                 <div class="flex justify-between items-center mb-6">
                     <h1 class="text-2xl font-bold text-gray-900">Course Management</h1>
                     <button onclick="document.getElementById('addCourseModal').classList.remove('hidden')"
-                        class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center">
+                        class="btn-primary text-white px-4 py-2 rounded-md flex items-center">
                         <i class="fas fa-plus mr-2"></i> Add Course
                     </button>
+                </div>
+
+                <!-- Year Level Filter -->
+                <div class="mb-6">
+                    <form method="GET" action="/chair/courses">
+                        <label for="year_level" class="block text-sm font-medium text-gray-700 mb-1">Filter by Year Level</label>
+                        <select name="year_level" id="year_level" class="w-48 rounded-md border-gray-300 shadow-sm search-bar focus:ring-gold focus:border-gold" onchange="this.form.submit()">
+                            <option value="">All Year Levels</option>
+                            <option value="1st Year" <?= $yearLevelFilter === '1st Year' ? 'selected' : '' ?>>1st Year</option>
+                            <option value="2nd Year" <?= $yearLevelFilter === '2nd Year' ? 'selected' : '' ?>>2nd Year</option>
+                            <option value="3rd Year" <?= $yearLevelFilter === '3rd Year' ? 'selected' : '' ?>>3rd Year</option>
+                            <option value="4th Year" <?= $yearLevelFilter === '4th Year' ? 'selected' : '' ?>>4th Year</option>
+                        </select>
+                    </form>
                 </div>
 
                 <!-- Courses List - Table View -->
@@ -289,30 +328,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Course Code*</label>
                                     <input type="text" name="course_code" required
-                                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                        class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                 </div>
 
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Course Name*</label>
                                     <input type="text" name="course_name" required
-                                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                        class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                 </div>
 
                                 <div class="grid grid-cols-3 gap-4">
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Units*</label>
                                         <input type="number" name="units" min="1" max="255" required
-                                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                            class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Lecture Hours</label>
                                         <input type="number" name="lecture_hours" min="0" max="255" value="0"
-                                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                            class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Lab Hours</label>
                                         <input type="number" name="lab_hours" min="0" max="255" value="0"
-                                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                            class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                     </div>
                                 </div>
 
@@ -320,7 +359,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Semester*</label>
                                         <select name="semester" required
-                                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                            class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                             <option value="1st">1st Semester</option>
                                             <option value="2nd">2nd Semester</option>
                                             <option value="Summer">Summer</option>
@@ -329,7 +368,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Year Level</label>
                                         <select name="year_level"
-                                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                            class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                             <option value="">Select Year</option>
                                             <option value="1st Year">1st Year</option>
                                             <option value="2nd Year">2nd Year</option>
@@ -341,7 +380,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
 
                                 <div class="flex items-center">
                                     <input type="checkbox" name="is_active" checked id="is_active"
-                                        class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                        class="rounded border-gray-300 text-gold shadow-sm focus:border-gold focus:ring-gold">
                                     <label for="is_active" class="ml-2 block text-sm text-gray-700">
                                         Active Course
                                     </label>
@@ -349,11 +388,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
 
                                 <div class="flex justify-end space-x-3 pt-4">
                                     <button type="button" onclick="document.getElementById('addCourseModal').classList.add('hidden')"
-                                        class="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                        class="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gold">
                                         Cancel
                                     </button>
                                     <button type="submit" name="add_course"
-                                        class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                        class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-gray-900 bg-gold hover:bg-gold-light focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gold">
                                         Add Course
                                     </button>
                                 </div>
@@ -380,30 +419,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Course Code*</label>
                                     <input type="text" name="course_code" id="edit_course_code" required
-                                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                        class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                 </div>
 
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Course Name*</label>
                                     <input type="text" name="course_name" id="edit_course_name" required
-                                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                        class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                 </div>
 
                                 <div class="grid grid-cols-3 gap-4">
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Units*</label>
                                         <input type="number" name="units" id="edit_units" min="1" max="255" required
-                                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                            class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Lecture Hours</label>
                                         <input type="number" name="lecture_hours" id="edit_lecture_hours" min="0" max="255"
-                                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                            class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Lab Hours</label>
                                         <input type="number" name="lab_hours" id="edit_lab_hours" min="0" max="255"
-                                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                            class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                     </div>
                                 </div>
 
@@ -411,7 +450,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Semester*</label>
                                         <select name="semester" id="edit_semester" required
-                                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                            class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                             <option value="1st">1st Semester</option>
                                             <option value="2nd">2nd Semester</option>
                                             <option value="Summer">Summer</option>
@@ -420,7 +459,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Year Level</label>
                                         <select name="year_level" id="edit_year_level"
-                                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                            class="w-full rounded-md border-gray-300 shadow-sm search-bar focus:border-gold focus:ring-gold">
                                             <option value="">Select Year</option>
                                             <option value="1st Year">1st Year</option>
                                             <option value="2nd Year">2nd Year</option>
@@ -432,7 +471,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
 
                                 <div class="flex items-center">
                                     <input type="checkbox" name="is_active" id="edit_is_active"
-                                        class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                                        class="rounded border-gray-300 text-gold shadow-sm focus:border-gold focus:ring-gold">
                                     <label for="edit_is_active" class="ml-2 block text-sm text-gray-700">
                                         Active Course
                                     </label>
@@ -440,11 +479,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_course'])) {
 
                                 <div class="flex justify-end space-x-3 pt-4">
                                     <button type="button" onclick="document.getElementById('editCourseModal').classList.add('hidden')"
-                                        class="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                        class="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gold">
                                         Cancel
                                     </button>
                                     <button type="submit" name="edit_course"
-                                        class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                        class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-gray-900 bg-gold hover:bg-gold-light focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gold">
                                         Update Course
                                     </button>
                                 </div>

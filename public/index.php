@@ -34,9 +34,9 @@ function handleChairRoutes($path)
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->classrooms();
             exit;
-        case '/chair/edit_classroom':
+        case '/chair/sections':
             require __DIR__ . '/../src/controllers/ChairController.php';
-            (new ChairController())->editClassroom();
+            (new ChairController())->sections();
             exit;
         case '/chair/create_offerings':
             require __DIR__ . '/../src/controllers/ChairController.php';
@@ -45,10 +45,6 @@ function handleChairRoutes($path)
         case '/chair/faculty':
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->faculty();
-            exit;
-        case '/chair/faculty_edit':
-            require __DIR__ . '/../src/controllers/ChairController.php';
-            (new ChairController())->editFaculty();
             exit;
         case '/chair/courses':
             require __DIR__ . '/../src/controllers/ChairController.php';

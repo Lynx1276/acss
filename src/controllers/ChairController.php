@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/Database.php';
 require_once __DIR__ . '/../services/SchedulingService.php';
+require_once __DIR__ . '/../services/CurriculumService.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
 use App\config\Database;
@@ -9,11 +10,13 @@ class ChairController
 {
     private $db;
     private $schedulingService;
+    private $curriculumService;
 
     public function __construct()
     {
         $this->db = (new Database())->connect();
         $this->schedulingService = new SchedulingService();
+        $this->curriculumService = new CurriculumService();
     }
 
     public function dashboard()
@@ -619,14 +622,41 @@ class ChairController
             }
 
             $departmentId = $_SESSION['user']['department_id'];
-            $curricula = $this->schedulingService->getDepartmentCurricula($departmentId);
-            $courses = $this->schedulingService->getDepartmentCourses($departmentId);
+            $curricula = $this->curriculumService->getDepartmentCurricula($departmentId);
+            $courses = $this->curriculumService->getDepartmentCourses($departmentId);
+            $searchResults = [];
 
+            // Handle course search
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['search_courses'])) {
+                $searchTerm = $_POST['search_term'] ?? '';
+                $searchDepartmentId = $_POST['search_department_id'] ?? null;
+                $searchResults = $this->curriculumService->searchCourses($searchTerm, $searchDepartmentId);
+            }
+
+            // Handle create course
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_course'])) {
+                $courseData = [
+                    'course_code' => $_POST['course_code'] ?? throw new Exception("Course code required"),
+                    'course_name' => $_POST['course_name'] ?? throw new Exception("Course name required"),
+                    'units' => $_POST['units'] ?? throw new Exception("Units required"),
+                    'lecture_hours' => $_POST['lecture_hours'] ?? 0,
+                    'lab_hours' => $_POST['lab_hours'] ?? 0,
+                    'semester' => $_POST['semester'] ?? throw new Exception("Semester required"),
+                    'year_level' => $_POST['year_level'] ?? null,
+                    'department_id' => $departmentId,
+                    'program_id' => $_POST['program_id'] ?? null
+                ];
+                $this->curriculumService->createCourse($courseData);
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Course created successfully'];
+                header('Location: /chair/curriculum');
+                exit;
+            }
+
+            // Handle create curriculum
             if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_curriculum'])) {
-                $curriculumId = null;
                 if (isset($_FILES['curriculum_file']) && $_FILES['curriculum_file']['error'] === UPLOAD_ERR_OK) {
                     // File upload
-                    $curriculumId = $this->schedulingService->createCurriculumFromFile(
+                    $curriculumId = $this->curriculumService->createCurriculumFromFile(
                         $departmentId,
                         $_FILES['curriculum_file'],
                         $_SESSION['user']['user_id']
@@ -637,11 +667,10 @@ class ChairController
                         'name' => $_POST['name'] ?? throw new Exception("Curriculum name required"),
                         'code' => $_POST['code'] ?? throw new Exception("Curriculum code required"),
                         'effective_year' => $_POST['effective_year'] ?? throw new Exception("Effective year required"),
-                        'total_units' => $_POST['total_units'] ?? throw new Exception("Total units required"),
                         'program_name' => $_POST['program_name'] ?? throw new Exception("Program name required"),
                         'courses' => $_POST['courses'] ?? []
                     ];
-                    $curriculumId = $this->schedulingService->createCurriculumManually(
+                    $curriculumId = $this->curriculumService->createCurriculumManually(
                         $departmentId,
                         $data,
                         $_SESSION['user']['user_id']
@@ -683,7 +712,7 @@ class ChairController
                     throw new Exception("Curriculum not found or not accessible");
                 }
 
-                $this->schedulingService->updateCurriculumFile(
+                $this->curriculumService->createCurriculumFromFile(
                     $curriculumId,
                     $_FILES['curriculum_file'],
                     $_SESSION['user']['user_id']
@@ -719,8 +748,8 @@ class ChairController
             }
 
             // Get curriculum versions
-            $versions = $this->schedulingService->getCurriculumVersions($curriculumId);
-            $currentVersion = $this->schedulingService->getCurrentCurriculumVersion($curriculumId);
+            $versions = $this->curriculumService->getCurriculumVersions($curriculumId);
+            $currentVersion = $this->curriculumService->getCurrentCurriculumVersion($curriculumId);
 
             require __DIR__ . '/../views/chair/curriculum_versions.php';
         } catch (Exception $e) {
@@ -739,7 +768,7 @@ class ChairController
             }
 
             $departmentId = $_SESSION['user']['department_id'];
-            $courses = $this->schedulingService->getCourses($departmentId);
+            $courses = $this->curriculumService->getCourses($departmentId);
 
             if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $data = [
@@ -749,7 +778,7 @@ class ChairController
                     'courses' => $_POST['courses'] ?? []
                 ];
 
-                $result = $this->schedulingService->createCurriculum($departmentId, $data);
+                $result = $this->curriculumService->createCurriculum($departmentId, $data);
 
                 if ($result) {
                     $_SESSION['success'] = "Curriculum created successfully!";
@@ -830,6 +859,24 @@ class ChairController
         } catch (Exception $e) {
             $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
             header('Location: /chair/reports');
+            exit;
+        }
+    }
+
+    public function sections()
+    {
+        AuthMiddleware::handle('chair');
+        try {
+            if (!isset($_SESSION['user']['department_id'])) {
+                throw new Exception("Unauthorized access");
+            }
+
+            $departmentId = $_SESSION['user']['department_id'];
+            require __DIR__ . '/../views/chair/sections.php';
+        } catch (Exception $e) {
+            error_log("ChairController sections error: " . $e->getMessage());
+            $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
+            header('Location: /chair/sections');
             exit;
         }
     }
