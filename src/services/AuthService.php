@@ -1,6 +1,9 @@
 <?php
 require_once __DIR__ . '/../config/Database.php';
 
+
+use App\config\Database;
+
 class AuthService
 {
     private $db;
@@ -23,7 +26,6 @@ class AuthService
         string $middleName,
         string $lastName,
         string $suffix,
-        string $phone,
         ?string $academicRank = null,
         ?string $classification = null,
         ?string $employmentType = null,
@@ -38,10 +40,10 @@ class AuthService
             $stmt = $this->db->prepare("
                 INSERT INTO users (
                     employee_id, username, email, password_hash,
-                    first_name, middle_name, last_name, suffix, phone,
+                    first_name, middle_name, last_name, suffix,
                     role_id, department_id, college_id,
                     is_active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
             ");
             $stmt->execute([
                 $employeeId,
@@ -52,7 +54,6 @@ class AuthService
                 $middleName,
                 $lastName,
                 $suffix,
-                $phone,
                 $roleId,
                 $departmentId,
                 $collegeId
@@ -65,10 +66,10 @@ class AuthService
                 $stmt = $this->db->prepare("
                     INSERT INTO faculty (
                         employee_id, first_name, middle_name, last_name, suffix,
-                        email, phone, academic_rank, classification, employment_type,
+                        email, academic_rank, classification, employment_type,
                         department_id, primary_program_id, user_id,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
                 ");
                 $stmt->execute([
                     $employeeId,
@@ -77,7 +78,6 @@ class AuthService
                     $lastName,
                     $suffix,
                     $email,
-                    $phone,
                     $academicRank,
                     $classification,
                     $employmentType,

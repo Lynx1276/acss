@@ -1,6 +1,9 @@
 <?php
 require_once __DIR__ . '/../config/Database.php';
 
+use PDO;
+use App\config\Database;
+use Exception;
 class PublicController
 {
     private $db;

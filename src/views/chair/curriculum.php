@@ -3,6 +3,8 @@ require_once __DIR__ . '/../../config/Database.php';
 require_once __DIR__ . '/../../services/SchedulingService.php';
 require_once __DIR__ . '/../../middleware/AuthMiddleware.php';
 
+use App\config\Database;
+
 AuthMiddleware::handle('chair');
 $db = (new Database())->connect();
 $schedulingService = new SchedulingService();
@@ -28,25 +30,27 @@ try {
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* PRMSU Color Palette */
         :root {
-            --prmsu-blue: #0056b3;
-            --prmsu-gold: #FFD700;
-            --prmsu-light: #f8f9fa;
-            --prmsu-dark: #343a40;
+            --prmsu-gray-dark: #333333;
+            --prmsu-gray: #666666;
+            --prmsu-gray-light: #f5f5f5;
+            --prmsu-gold: rgb(239, 187, 15);
+            --prmsu-gold-light: #F9F3E5;
+            --prmsu-white: #ffffff;
         }
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--prmsu-gray-light);
         }
 
         .sidebar {
             transition: all 0.3s ease;
-            background: linear-gradient(180deg, var(--prmsu-blue) 0%, #003366 100%);
+            background: linear-gradient(180deg, var(--prmsu-gray-dark) 0%, rgb(79, 78, 78) 100%);
         }
 
         .sidebar-header {
-            background-color: rgba(0, 0, 0, 0.1);
+            background-color: rgba(0, 0, 0, 0.2);
         }
 
         .nav-item {
@@ -55,24 +59,21 @@ try {
         }
 
         .nav-item:hover {
-            background-color: #2b6cb0;
-            /* Darker blue on hover */
+            background-color: rgba(244, 147, 12, 0.15);
         }
 
         .nav-item.active {
-            background-color: rgba(255, 255, 255, 0.15);
-            /* Slightly lighter for active */
+            background-color: rgba(212, 175, 55, 0.2);
             border-left: 3px solid var(--prmsu-gold);
         }
 
         .nav-item.active:hover {
-            background-color: rgba(255, 255, 255, 0.25);
-            /* Even lighter on active hover */
+            background-color: rgba(212, 175, 55, 0.25);
         }
 
         .badge {
             background-color: var(--prmsu-gold);
-            color: var(--prmsu-dark);
+            color: var(--prmsu-gray-dark);
         }
     </style>
     <script>

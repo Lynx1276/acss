@@ -3,11 +3,15 @@ require_once __DIR__ . '/../config/Database.php';
 require_once __DIR__ . '/../services/SchedulingService.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
-class ChairController {
+use App\config\Database;
+
+class ChairController
+{
     private $db;
     private $schedulingService;
 
-    public function __construct() {
+    public function __construct()
+    {
         $this->db = (new Database())->connect();
         $this->schedulingService = new SchedulingService();
     }
@@ -20,7 +24,6 @@ class ChairController {
             if (!isset($_SESSION['user']['department_id'])) {
                 throw new Exception("User department not set");
             }
-            
 
             $departmentId = $_SESSION['user']['department_id'];
 
@@ -35,13 +38,9 @@ class ChairController {
             $semesters = $this->getAllSemesters();
             $currentSemester = $this->getCurrentSemester();
 
-            // Get schedule data
+            // Get schedule data - remove facultyAvailability from this array
             $scheduleData = [
                 'schedule' => $this->schedulingService->getDepartmentSchedule(
-                    $departmentId,
-                    $currentSemester['semester_id']
-                ),
-                'facultyAvailability' => $this->schedulingService->getFacultyAvailability(
                     $departmentId,
                     $currentSemester['semester_id']
                 ),
@@ -57,15 +56,14 @@ class ChairController {
             if (!file_exists($fullPath)) {
                 throw new Exception("View file not found: $viewFile");
             }
-                
-            // Pass data to view
+
+            // Pass data to view - removed facultyAvailability from the merged data
             extract(array_merge($stats, $scheduleData, [
                 'semesters' => $semesters,
                 'currentSemester' => $currentSemester
             ]));
 
             require $fullPath;
-
         } catch (Exception $e) {
             // Log error and show error page
             error_log("ChairController error: " . $e->getMessage());
@@ -85,13 +83,9 @@ class ChairController {
             $semesters = $this->getAllSemesters();
             $currentSemester = $this->getCurrentSemester();
 
-            // Get schedule data
+            // Get schedule data - remove facultyAvailability from this array
             $scheduleData = [
                 'schedule' => $this->schedulingService->getDepartmentSchedule(
-                    $departmentId,
-                    $currentSemester['semester_id']
-                ),
-                'facultyAvailability' => $this->schedulingService->getFacultyAvailability(
                     $departmentId,
                     $currentSemester['semester_id']
                 ),
@@ -171,122 +165,6 @@ class ChairController {
         }
     }
 
-    public function facultyAvailability()
-    {
-        AuthMiddleware::handle('chair');
-        try {
-            if (!isset($_SESSION['user']['department_id'])) {
-                throw new Exception("Unauthorized access");
-            }
-
-            $departmentId = $_SESSION['user']['department_id'];
-            $currentSemester = $this->schedulingService->getCurrentSemester();
-            $semesterId = $currentSemester['semester_id'];
-
-            // Handle form submission to update availability
-            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_availability'])) {
-                $facultyId = $_POST['faculty_id'] ?? null;
-                $dayOfWeek = $_POST['day_of_week'] ?? null;
-                $startTime = $_POST['start_time'] ?? null;
-                $endTime = $_POST['end_time'] ?? null;
-                $isAvailable = isset($_POST['is_available']) ? 1 : 0;
-                $preferenceLevel = $_POST['preference_level'] ?? 'Neutral';
-                $reason = $_POST['reason'] ?? null;
-
-                if ($facultyId && $dayOfWeek && $startTime && $endTime) {
-                    $this->updateFacultyAvailability(
-                        $facultyId,
-                        $semesterId,
-                        $dayOfWeek,
-                        $startTime,
-                        $endTime,
-                        $isAvailable,
-                        $preferenceLevel,
-                        $reason
-                    );
-                    $_SESSION['flash'] = ['type' => 'success', 'message' => 'Availability updated successfully'];
-                    header('Location: /chair/faculty_availability');
-                    exit;
-                }
-            }
-
-            // Get faculty members and their availability
-            $faculty = $this->schedulingService->getFacultyMembers($departmentId);
-            $availability = [];
-
-            foreach ($faculty as $member) {
-                $availability[$member['faculty_id']] = $this->schedulingService->getFacultyAvailabilityForSemester(
-                    $member['faculty_id'],
-                    $semesterId
-                );
-            }
-
-            $stats = ['pendingApprovals' => count($this->schedulingService->getPendingApprovals($departmentId))];
-
-            require __DIR__ . '/../views/chair/faculty_availability.php';
-        } catch (Exception $e) {
-            $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
-            header('Location: /chair/faculty_availability');
-            exit;
-        }
-    }
-
-    private function updateFacultyAvailability($facultyId, $semesterId, $dayOfWeek, $startTime, $endTime, $isAvailable, $preferenceLevel, $reason)
-    {
-        // Check if availability already exists
-        $query = "SELECT availability_id FROM faculty_availability 
-              WHERE faculty_id = :faculty_id 
-              AND semester_id = :semester_id
-              AND day_of_week = :day_of_week
-              AND start_time = :start_time
-              AND end_time = :end_time";
-
-        $stmt = $this->db->prepare($query);
-        $stmt->execute([
-            ':faculty_id' => $facultyId,
-            ':semester_id' => $semesterId,
-            ':day_of_week' => $dayOfWeek,
-            ':start_time' => $startTime,
-            ':end_time' => $endTime
-        ]);
-
-        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($existing) {
-            // Update existing record
-            $updateQuery = "UPDATE faculty_availability SET 
-                        is_available = :is_available,
-                        preference_level = :preference_level,
-                        reason = :reason
-                        WHERE availability_id = :availability_id";
-
-            $stmt = $this->db->prepare($updateQuery);
-            $stmt->execute([
-                ':is_available' => $isAvailable,
-                ':preference_level' => $preferenceLevel,
-                ':reason' => $reason,
-                ':availability_id' => $existing['availability_id']
-            ]);
-        } else {
-            // Insert new record
-            $insertQuery = "INSERT INTO faculty_availability 
-                       (faculty_id, semester_id, day_of_week, start_time, end_time, is_available, preference_level, reason)
-                       VALUES 
-                       (:faculty_id, :semester_id, :day_of_week, :start_time, :end_time, :is_available, :preference_level, :reason)";
-
-            $stmt = $this->db->prepare($insertQuery);
-            $stmt->execute([
-                ':faculty_id' => $facultyId,
-                ':semester_id' => $semesterId,
-                ':day_of_week' => $dayOfWeek,
-                ':start_time' => $startTime,
-                ':end_time' => $endTime,
-                ':is_available' => $isAvailable,
-                ':preference_level' => $preferenceLevel,
-                ':reason' => $reason
-            ]);
-        }
-    }
 
     public function classrooms()
     {
@@ -1027,10 +905,226 @@ class ChairController {
         ];
     }
 
+    public function profile()
+    {
+        AuthMiddleware::handle('chair');
+
+        try {
+            if (!isset($_SESSION['user']['user_id'])) {
+                throw new Exception("User not authenticated");
+            }
+
+            $userId = $_SESSION['user']['user_id'];
+
+            // Get user data
+            $userQuery = "SELECT u.*, r.role_name 
+                     FROM users u 
+                     JOIN roles r ON u.role_id = r.role_id 
+                     WHERE u.user_id = :user_id";
+            $stmt = $this->db->prepare($userQuery);
+            $stmt->execute([':user_id' => $userId]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$user) {
+                throw new Exception("User not found");
+            }
+
+            // Get department and college info
+            $deptQuery = "SELECT * FROM departments WHERE department_id = :dept_id";
+            $stmt = $this->db->prepare($deptQuery);
+            $stmt->execute([':dept_id' => $user['department_id']]);
+            $department = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $collegeQuery = "SELECT * FROM colleges WHERE college_id = :college_id";
+            $stmt = $this->db->prepare($collegeQuery);
+            $stmt->execute([':college_id' => $user['college_id']]);
+            $college = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // Get last login from auth_logs
+            $lastLoginQuery = "SELECT created_at FROM auth_logs 
+                          WHERE user_id = :user_id AND action = 'login' 
+                          ORDER BY created_at DESC LIMIT 1";
+            $stmt = $this->db->prepare($lastLoginQuery);
+            $stmt->execute([':user_id' => $userId]);
+            $lastLogin = $stmt->fetchColumn() ?? date('Y-m-d H:i:s');
+
+            // Get dashboard statistics
+            $stats = [
+                'facultyCount' => $this->getFacultyCount($user['department_id']),
+                'courseCount' => $this->getCourseCount($user['department_id']),
+                'approvalCount' => $this->getPendingApprovalCount($user['department_id'])
+            ];
+
+            // Get current semester
+            $semester = $this->getCurrentSemester();
+
+            // Extract view path from class name
+            $viewPath = str_replace('Controller', '', basename(get_class($this)));
+            $viewFile = strtolower($viewPath) . '/profile.php';
+            $fullPath = __DIR__ . '/../views/' . $viewFile;
+
+            // Verify view exists
+            if (!file_exists($fullPath)) {
+                throw new Exception("View file not found: $viewFile");
+            }
+
+            // Pass data to view
+            require $fullPath;
+        } catch (Exception $e) {
+            error_log("ChairController profile error: " . $e->getMessage());
+            $this->showError("An error occurred while loading the profile page");
+        }
+    }
+
+    public function updateProfile()
+    {
+        AuthMiddleware::handle('chair');
+
+        try {
+            if (!isset($_SESSION['user']['user_id'])) {
+                throw new Exception("User not authenticated");
+            }
+
+            $userId = $_SESSION['user']['user_id'];
+
+            // Process form data
+            $firstName = $_POST['first_name'] ?? '';
+            $middleName = $_POST['middle_name'] ?? null;
+            $lastName = $_POST['last_name'] ?? '';
+            $suffix = $_POST['suffix'] ?? null;
+            $phone = $_POST['phone'] ?? null;
+
+            // Basic validation
+            if (empty($firstName) || empty($lastName)) {
+                throw new Exception("First name and last name are required");
+            }
+
+            // Handle file upload if present
+            $profilePicture = null;
+            if (isset($_FILES['profile_picture']) && $_FILES['profile_picture']['error'] === UPLOAD_ERR_OK) {
+                $uploadDir = __DIR__ . '/../public/uploads/profiles/';
+                if (!file_exists($uploadDir)) {
+                    mkdir($uploadDir, 0777, true);
+                }
+
+                $fileExt = pathinfo($_FILES['profile_picture']['name'], PATHINFO_EXTENSION);
+                $fileName = 'profile_' . $userId . '_' . time() . '.' . $fileExt;
+                $uploadPath = $uploadDir . $fileName;
+
+                if (move_uploaded_file($_FILES['profile_picture']['tmp_name'], $uploadPath)) {
+                    $profilePicture = '/uploads/profiles/' . $fileName;
+                }
+            }
+
+            // Update query
+            $updateQuery = "UPDATE users SET 
+                        first_name = :first_name,
+                        middle_name = :middle_name,
+                        last_name = :last_name,
+                        suffix = :suffix,
+                        phone = :phone" .
+                ($profilePicture ? ", profile_picture = :profile_picture" : "") .
+                " WHERE user_id = :user_id";
+
+            $stmt = $this->db->prepare($updateQuery);
+            $params = [
+                ':first_name' => $firstName,
+                ':middle_name' => $middleName,
+                ':last_name' => $lastName,
+                ':suffix' => $suffix,
+                ':phone' => $phone,
+                ':user_id' => $userId
+            ];
+
+            if ($profilePicture) {
+                $params[':profile_picture'] = $profilePicture;
+            }
+
+            if ($stmt->execute($params)) {
+                // Update session data
+                $_SESSION['user']['first_name'] = $firstName;
+                $_SESSION['user']['middle_name'] = $middleName;
+                $_SESSION['user']['last_name'] = $lastName;
+                $_SESSION['user']['suffix'] = $suffix;
+                $_SESSION['user']['phone'] = $phone;
+                if ($profilePicture) {
+                    $_SESSION['user']['profile_picture'] = $profilePicture;
+                }
+
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Profile updated successfully'];
+            } else {
+                throw new Exception("Failed to update profile");
+            }
+
+            header('Location: /chair/profile');
+            exit;
+        } catch (Exception $e) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
+            header('Location: /chair/profile');
+            exit;
+        }
+    }
+
+    public function changePassword()
+    {
+        AuthMiddleware::handle('chair');
+
+        try {
+            if (!isset($_SESSION['user']['user_id'])) {
+                throw new Exception("User not authenticated");
+            }
+
+            $userId = $_SESSION['user']['user_id'];
+            $currentPassword = $_POST['current_password'] ?? '';
+            $newPassword = $_POST['new_password'] ?? '';
+            $confirmPassword = $_POST['confirm_password'] ?? '';
+
+            // Validate inputs
+            if (empty($currentPassword) || empty($newPassword) || empty($confirmPassword)) {
+                throw new Exception("All password fields are required");
+            }
+
+            if ($newPassword !== $confirmPassword) {
+                throw new Exception("New passwords do not match");
+            }
+
+            if (strlen($newPassword) < 8) {
+                throw new Exception("Password must be at least 8 characters long");
+            }
+
+            // Verify current password
+            $userQuery = "SELECT password_hash FROM users WHERE user_id = :user_id";
+            $stmt = $this->db->prepare($userQuery);
+            $stmt->execute([':user_id' => $userId]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!password_verify($currentPassword, $user['password_hash'])) {
+                throw new Exception("Current password is incorrect");
+            }
+
+            // Update password
+            $newHash = password_hash($newPassword, PASSWORD_BCRYPT);
+            $updateQuery = "UPDATE users SET password_hash = :password_hash WHERE user_id = :user_id";
+            $stmt = $this->db->prepare($updateQuery);
+
+            if ($stmt->execute([':password_hash' => $newHash, ':user_id' => $userId])) {
+                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Password changed successfully'];
+            } else {
+                throw new Exception("Failed to update password");
+            }
+
+            header('Location: /chair/profile');
+            exit;
+        } catch (Exception $e) {
+            $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
+            header('Location: /chair/profile');
+            exit;
+        }
+    }
+
     private function showError($message)
     {
         // You could create a dedicated error view file
         echo "<div class='alert alert-danger'>$message</div>";
     }
 }
-?>

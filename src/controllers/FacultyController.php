@@ -3,6 +3,9 @@ require_once __DIR__ . '/../config/Database.php';
 require_once __DIR__ . '/../services/SchedulingService.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
 
+use PDO;
+use App\config\Database;
+use Exception;
 class FacultyController
 {
     private $db;

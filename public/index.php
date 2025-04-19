@@ -50,10 +50,6 @@ function handleChairRoutes($path)
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->editFaculty();
             exit;
-        case '/chair/faculty_availability':
-            require __DIR__ . '/../src/controllers/ChairController.php';
-            (new ChairController())->facultyAvailability();
-            exit;
         case '/chair/courses':
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->courses();
@@ -70,10 +66,6 @@ function handleChairRoutes($path)
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->settings();
             exit;
-        case '/chair/logout':
-            require __DIR__ . '/../src/controllers/AuthController.php';
-            (new AuthController())->logout();
-            exit;
         case '/chair/curriculum':
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->curriculum();
@@ -85,6 +77,19 @@ function handleChairRoutes($path)
         case '/chair/curriculum/new':
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->newCurriculum();
+            exit;
+            // Add this to your handleChairRoutes function in index.php
+        case '/chair/profile':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->profile();
+            exit;
+        case '/chair/logout':
+            require __DIR__ . '/../src/controllers/AuthController.php';
+            (new AuthController())->logout();
+            exit;
+        default:
+            http_response_code(404);
+            echo "404 Not Found";
             exit;
     }
 }
@@ -110,7 +115,7 @@ function handleDeanRoutes($path)
 {
     switch ($path) {
         case '/dean/dashboard':
-            require_once __DIR__ . '/../src/controllers/DeanController.php'; // Fixed path
+            require_once __DIR__ . '/../src/controllers/DeanController.php';
             (new DeanController())->dashboard();
             break;
         case '/dean/schedule':
@@ -248,17 +253,17 @@ switch ($roleId) {
     case 3: // DI
         handleDiRoutes($path);
         break;
-    case 4: // Chair
-        handleChairRoutes($path);
-        break;
-    case 5: // Dean
+    case 4: // Dean
         handleDeanRoutes($path);
+        break;
+    case 5: // Chair
+        handleChairRoutes($path);
         break;
     case 6: // Faculty
         handleFacultyRoutes($path);
         break;
     default:
-        AuthMiddleware::handle(null); // Basic session check
+        AuthMiddleware::handle(null);
         http_response_code(403);
         echo 'Unauthorized role';
         exit;

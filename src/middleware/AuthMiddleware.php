@@ -5,8 +5,8 @@ class AuthMiddleware
         'admin' => 1,
         'vpaa' => 2,
         'di' => 3,
-        'chair' => 4,
-        'dean' => 5,
+        'dean' => 4,
+        'chair' => 5,
         'faculty' => 6
     ];
 

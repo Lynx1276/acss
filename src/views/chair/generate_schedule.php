@@ -3,6 +3,8 @@ require_once __DIR__ . '/../../config/Database.php';
 require_once __DIR__ . '/../../services/SchedulingService.php';
 require_once __DIR__ . '/../../middleware/AuthMiddleware.php';
 
+use App\config\Database;
+
 // Define current URI
 $currentUri = $_SERVER['REQUEST_URI'];
 

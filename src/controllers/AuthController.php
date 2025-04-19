@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../services/AuthService.php';
-require_once __DIR__ . '/../config/Database.php';
+
+use App\config\Database;
 
 class AuthController
 {
@@ -80,7 +81,7 @@ class AuthController
 
             // Successful login
             $_SESSION['user'] = [
-                'id' => (int)$user['user_id'],
+                'user_id' => (int)$user['user_id'],
                 'username' => $user['username'],
                 'email' => $user['email'],
                 'role_id' => (int)$user['role_id'],
@@ -219,7 +220,6 @@ class AuthController
                 'middle_name' => trim($_POST['middle_name'] ?? ''),
                 'last_name' => trim($_POST['last_name']),
                 'suffix' => trim($_POST['suffix'] ?? ''),
-                'phone' => trim($_POST['phone'] ?? ''),
                 'academic_rank' => ($roleId == 6) ? ($_POST['academic_rank'] ?? 'Instructor') : null,
                 'classification' => ($roleId == 6) ? ($_POST['classification'] ?? null) : null,
                 'employment_type' => ($roleId == 6) ? ($_POST['employment_type'] ?? 'Regular') : null,
@@ -239,7 +239,6 @@ class AuthController
                 $userData['middle_name'],
                 $userData['last_name'],
                 $userData['suffix'],
-                $userData['phone'],
                 $userData['academic_rank'],
                 $userData['classification'],
                 $userData['employment_type'],
@@ -281,7 +280,7 @@ class AuthController
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
             ");
             $stmt->execute([
-                $userData['username'],
+                $userData['username'],  
                 $userData['email'],
                 $passwordHash,
                 $userData['first_name'],
@@ -405,11 +404,11 @@ class AuthController
             case 3: // DI
                 header('Location: /di/dashboard');
                 break;
-            case 4: // Chair
-                header('Location: /chair/dashboard');
-                break;
-            case 5: // Dean
+            case 4: // Dean
                 header('Location: /dean/dashboard');
+                break;
+            case 5: // chair
+                header('Location: /chair/dashboard');
                 break;
             case 6: // Faculty
                 header('Location: /faculty/dashboard');
