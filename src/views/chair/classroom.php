@@ -16,46 +16,51 @@ if (!$departmentId) {
 $schedulingService = new SchedulingService();
 $db = (new Database())->connect();
 
-// Get classrooms
+// Get department classrooms
 $classrooms = $schedulingService->getAvailableClassrooms($departmentId);
+
+// Search functionality
+$searchResults = [];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['search_classrooms'])) {
+    $building = $_POST['building'] ?? '';
+    $minCapacity = (int)($_POST['min_capacity'] ?? 0);
+    $roomType = $_POST['room_type'] ?? '';
+    $availability = $_POST['availability'] ?? 'available';
+
+    $query = "SELECT c.*, d.department_name, cl.college_name 
+              FROM classrooms c
+              JOIN departments d ON c.department_id = d.department_id
+              JOIN colleges cl ON d.college_id = cl.college_id
+              WHERE (c.shared = 1 OR c.department_id = :department_id)
+              AND c.availability = :availability
+              AND c.capacity >= :min_capacity";
+
+    $params = [
+        ':department_id' => $departmentId,
+        ':availability' => $availability,
+        ':min_capacity' => $minCapacity
+    ];
+
+    if (!empty($building)) {
+        $query .= " AND c.building LIKE :building";
+        $params[':building'] = "%$building%";
+    }
+
+    if (!empty($roomType)) {
+        $query .= " AND c.room_type = :room_type";
+        $params[':room_type'] = $roomType;
+    }
+
+    $stmt = $db->prepare($query);
+    $stmt->execute($params);
+    $searchResults = $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // Define $stats for sidebar
 $pendingApprovalsData = $schedulingService->getPendingApprovals($departmentId);
 $stats = [
     'pendingApprovals' => is_array($pendingApprovalsData) ? count($pendingApprovalsData) : (int)($pendingApprovalsData ?? 0)
 ];
-
-// Handle POST for adding a classroom
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_classroom'])) {
-    $roomName = $_POST['room_name'] ?? '';
-    $building = $_POST['building'] ?? '';
-    $capacity = (int)($_POST['capacity'] ?? 0);
-    $isLab = isset($_POST['is_lab']) ? 1 : 0;
-    $hasProjector = isset($_POST['has_projector']) ? 1 : 0;
-    $hasSmartboard = isset($_POST['has_smartboard']) ? 1 : 0;
-    $hasComputers = isset($_POST['has_computers']) ? 1 : 0;
-    $shared = isset($_POST['shared']) ? 1 : 0;
-    $isActive = isset($_POST['is_active']) ? 1 : 0;
-
-    $query = "INSERT INTO classrooms (room_name, building, capacity, is_lab, has_projector, has_smartboard, has_computers, shared, is_active, department_id) 
-              VALUES (:room_name, :building, :capacity, :is_lab, :has_projector, :has_smartboard, :has_computers, :shared, :is_active, :department_id)";
-    $stmt = $db->prepare($query);
-    $stmt->execute([
-        ':room_name' => $roomName,
-        ':building' => $building,
-        ':capacity' => $capacity,
-        ':is_lab' => $isLab,
-        ':has_projector' => $hasProjector,
-        ':has_smartboard' => $hasSmartboard,
-        ':has_computers' => $hasComputers,
-        ':shared' => $shared,
-        ':is_active' => $isActive,
-        ':department_id' => $departmentId
-    ]);
-
-    header('Location: /chair/classroom');
-    exit;
-}
 ?>
 
 <!DOCTYPE html>
@@ -68,20 +73,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_classroom'])) {
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        /* Updated PRMSU Color Palette - Gray, White, Gold */
         :root {
-            --prmsu-blue: #0056b3;
-            --prmsu-gold: #FFD700;
-            --prmsu-light: #f8f9fa;
-            --prmsu-dark: #343a40;
+            --prmsu-gray-dark: #333333;
+            --prmsu-gray: #666666;
+            --prmsu-gray-light: #f5f5f5;
+            --prmsu-gold: rgb(239, 187, 15);
+            --prmsu-gold-light: #F9F3E5;
+            --prmsu-white: #ffffff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--prmsu-gray-light);
         }
 
         .sidebar {
             transition: all 0.3s ease;
-            background: linear-gradient(180deg, var(--prmsu-blue) 0%, #003366 100%);
+            background: linear-gradient(180deg, var(--prmsu-gray-dark) 0%, rgb(79, 78, 78) 100%);
         }
 
         .sidebar-header {
-            background-color: rgba(0, 0, 0, 0.1);
+            background-color: rgba(0, 0, 0, 0.2);
         }
 
         .nav-item {
@@ -90,35 +103,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_classroom'])) {
         }
 
         .nav-item:hover {
-            background-color: #2b6cb0;
-            /* Darker blue on hover */
+            background-color: rgba(244, 147, 12, 0.15);
         }
 
         .nav-item.active {
-            background-color: rgba(255, 255, 255, 0.15);
-            /* Slightly lighter for active */
+            background-color: rgba(212, 175, 55, 0.2);
             border-left: 3px solid var(--prmsu-gold);
         }
 
         .nav-item.active:hover {
-            background-color: rgba(255, 255, 255, 0.25);
-            /* Even lighter on active hover */
+            background-color: rgba(212, 175, 55, 0.25);
         }
 
         .badge {
             background-color: var(--prmsu-gold);
-            color: var(--prmsu-dark);
+            color: var(--prmsu-gray-dark);
         }
 
-        .editable-field {
-            border: 1px solid #d1d5db;
-            padding: 4px;
-            border-radius: 4px;
-            cursor: pointer;
+        .status-available {
+            background-color: #d1fae5;
+            color: #065f46;
         }
 
-        .editable-field:hover {
-            background-color: #f3f4f6;
+        .status-unavailable {
+            background-color: #fee2e2;
+            color: #b91c1c;
+        }
+
+        .status-maintenance {
+            background-color: #fef3c7;
+            color: #92400e;
         }
     </style>
 </head>
@@ -133,99 +147,137 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_classroom'])) {
             <div class="max-w-7xl mx-auto">
                 <div class="flex justify-between items-center mb-6">
                     <h1 class="text-2xl font-bold text-gray-900">Classroom Management</h1>
-                    <button onclick="document.getElementById('addClassroomModal').classList.remove('hidden')"
+                    <button onclick="document.getElementById('searchModal').classList.remove('hidden')"
                         class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center">
-                        <i class="fas fa-plus mr-2"></i> Add Classroom
+                        <i class="fas fa-search mr-2"></i> Search Classrooms
                     </button>
                 </div>
 
-                <!-- Classrooms List -->
-                <div class="bg-white shadow rounded-lg overflow-hidden">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Room Name</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Building</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Capacity</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Features</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shared</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            <?php foreach ($classrooms as $room): ?>
+                <!-- Department Classrooms -->
+                <div class="mb-8">
+                    <h2 class="text-lg font-semibold mb-4">My Department Classrooms</h2>
+                    <div class="bg-white shadow rounded-lg overflow-hidden">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
                                 <tr>
-                                    <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($room['room_name']) ?></td>
-                                    <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($room['building']) ?></td>
-                                    <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($room['capacity']) ?></td>
-                                    <td class="px-6 py-4 whitespace-nowrap"><?= $room['is_lab'] ? 'Lab' : 'Lecture' ?></td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <?= $room['has_projector'] ? '<i class="fas fa-video mr-1"></i>' : '' ?>
-                                        <?= $room['has_smartboard'] ? '<i class="fas fa-chalkboard mr-1"></i>' : '' ?>
-                                        <?= $room['has_computers'] ? '<i class="fas fa-desktop mr-1"></i>' : '' ?>
-                                    </td>
-                                    <td class="px-6 py-4 whitespace-nowrap"><?= $room['shared'] ? 'Yes' : 'No' ?></td>
-                                    <td class="px-6 py-4 whitespace-nowrap"><?= $room['is_active'] ? 'Active' : 'Inactive' ?></td>
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <a href="/chair/edit_classroom?id=<?= $room['room_id'] ?>"
-                                            class="text-blue-600 hover:text-blue-800"><i class="fas fa-edit"></i> Edit</a>
-                                    </td>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Room Name</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Building</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Capacity</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shared</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                 </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <?php foreach ($classrooms as $room): ?>
+                                    <tr>
+                                        <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($room['room_name']) ?></td>
+                                        <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($room['building']) ?></td>
+                                        <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($room['capacity']) ?></td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <?= ucfirst(str_replace('_', ' ', $room['room_type'])) ?>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap"><?= $room['shared'] ? 'Yes' : 'No' ?></td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span class="px-2 py-1 rounded-full text-xs font-medium 
+                                                <?php
+                                                switch ($room['availability']) {
+                                                    case 'available':
+                                                        echo 'status-available';
+                                                        break;
+                                                    case 'unavailable':
+                                                        echo 'status-unavailable';
+                                                        break;
+                                                    case 'under_maintenance':
+                                                        echo 'status-maintenance';
+                                                        break;
+                                                }
+                                                ?>">
+                                                <?= ucfirst(str_replace('_', ' ', $room['availability'])) ?>
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <a href="/chair/edit_classroom?id=<?= $room['room_id'] ?>"
+                                                class="text-blue-600 hover:text-blue-800"><i class="fas fa-edit"></i> Edit</a>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
-                <!-- Add Classroom Modal -->
-                <div id="addClassroomModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center">
+                <!-- Search Results -->
+                <?php if (!empty($searchResults)): ?>
+                    <div class="mt-8">
+                        <h2 class="text-lg font-semibold mb-4">Available Classrooms from Other Colleges</h2>
+                        <div class="bg-white shadow rounded-lg overflow-hidden">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Room Name</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Building</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Capacity</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">College</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <?php foreach ($searchResults as $room): ?>
+                                        <tr>
+                                            <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($room['room_name']) ?></td>
+                                            <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($room['building']) ?></td>
+                                            <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($room['capacity']) ?></td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <?= ucfirst(str_replace('_', ' ', $room['room_type'])) ?>
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($room['department_name']) ?></td>
+                                            <td class="px-6 py-4 whitespace-nowrap"><?= htmlspecialchars($room['college_name']) ?></td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <span class="px-2 py-1 rounded-full text-xs font-medium status-available">
+                                                    Available
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
+                <!-- Search Modal -->
+                <div id="searchModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center">
                     <div class="bg-white rounded-lg p-6 w-full max-w-md">
-                        <h2 class="text-xl font-semibold mb-4">Add New Classroom</h2>
+                        <h2 class="text-xl font-semibold mb-4">Search Available Classrooms</h2>
                         <form method="POST">
                             <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700">Room Name</label>
-                                <input type="text" name="room_name" required class="w-full rounded-md border-gray-300 shadow-sm">
-                            </div>
-                            <div class="mb-4">
                                 <label class="block text-sm font-medium text-gray-700">Building</label>
-                                <input type="text" name="building" required class="w-full rounded-md border-gray-300 shadow-sm">
+                                <input type="text" name="building" class="w-full rounded-md border-gray-300 shadow-sm" placeholder="Enter building name">
                             </div>
                             <div class="mb-4">
-                                <label class="block text-sm font-medium text-gray-700">Capacity</label>
-                                <input type="number" name="capacity" min="1" max="65535" required class="w-full rounded-md border-gray-300 shadow-sm">
+                                <label class="block text-sm font-medium text-gray-700">Minimum Capacity</label>
+                                <input type="number" name="min_capacity" min="1" class="w-full rounded-md border-gray-300 shadow-sm" value="20">
                             </div>
-                            <div class="mb-4 grid grid-cols-2 gap-4">
-                                <label class="inline-flex items-center">
-                                    <input type="checkbox" name="is_lab" class="rounded border-gray-300 text-blue-600 shadow-sm">
-                                    <span class="ml-2 text-sm font-medium text-gray-700">Is Laboratory?</span>
-                                </label>
-                                <label class="inline-flex items-center">
-                                    <input type="checkbox" name="has_projector" class="rounded border-gray-300 text-blue-600 shadow-sm">
-                                    <span class="ml-2 text-sm font-medium text-gray-700">Has Projector?</span>
-                                </label>
-                                <label class="inline-flex items-center">
-                                    <input type="checkbox" name="has_smartboard" class="rounded border-gray-300 text-blue-600 shadow-sm">
-                                    <span class="ml-2 text-sm font-medium text-gray-700">Has Smartboard?</span>
-                                </label>
-                                <label class="inline-flex items-center">
-                                    <input type="checkbox" name="has_computers" class="rounded border-gray-300 text-blue-600 shadow-sm">
-                                    <span class="ml-2 text-sm font-medium text-gray-700">Has Computers?</span>
-                                </label>
-                                <label class="inline-flex items-center">
-                                    <input type="checkbox" name="shared" class="rounded border-gray-300 text-blue-600 shadow-sm">
-                                    <span class="ml-2 text-sm font-medium text-gray-700">Shared?</span>
-                                </label>
-                                <label class="inline-flex items-center">
-                                    <input type="checkbox" name="is_active" checked class="rounded border-gray-300 text-blue-600 shadow-sm">
-                                    <span class="ml-2 text-sm font-medium text-gray-700">Active?</span>
-                                </label>
+                            <div class="mb-4">
+                                <label class="block text-sm font-medium text-gray-700">Room Type</label>
+                                <select name="room_type" class="w-full rounded-md border-gray-300 shadow-sm">
+                                    <option value="">Any Type</option>
+                                    <option value="classroom">Classroom</option>
+                                    <option value="laboratory">Laboratory</option>
+                                    <option value="auditorium">Auditorium</option>
+                                    <option value="seminar_room">Seminar Room</option>
+                                </select>
                             </div>
+                            <input type="hidden" name="availability" value="available">
                             <div class="flex justify-end space-x-3">
-                                <button type="button" onclick="document.getElementById('addClassroomModal').classList.add('hidden')"
+                                <button type="button" onclick="document.getElementById('searchModal').classList.add('hidden')"
                                     class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-md">Cancel</button>
-                                <button type="submit" name="add_classroom" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md">
-                                    Add Classroom
+                                <button type="submit" name="search_classrooms" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md">
+                                    Search
                                 </button>
                             </div>
                         </form>

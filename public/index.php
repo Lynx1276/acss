@@ -83,6 +83,15 @@ function handleChairRoutes($path)
             require __DIR__ . '/../src/controllers/ChairController.php';
             (new ChairController())->profile();
             exit;
+            // Add these to your handleChairRoutes function in index.php
+        case '/chair/update_profile':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->updateProfile();
+            exit;
+        case '/chair/change_password':
+            require __DIR__ . '/../src/controllers/ChairController.php';
+            (new ChairController())->changePassword();
+            exit;
         case '/chair/logout':
             require __DIR__ . '/../src/controllers/AuthController.php';
             (new AuthController())->logout();

@@ -120,39 +120,38 @@ class ChairController
 
             $departmentId = $_SESSION['user']['department_id'];
             $schedulingService = new SchedulingService();
+            $db = (new Database())->connect();
 
-            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_load'])) {
+            // Handle adding faculty to department
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_department'])) {
                 $facultyId = $_POST['faculty_id'] ?? null;
-                $courseId = $_POST['course_id'] ?? null;
-                $semesterId = $_POST['semester_id'] ?? null;
-                $roomId = $_POST['room_id'] ?? null;
-                $timeSlots = $_POST['time_slots'] ?? [];
+                $newDepartmentId = $_POST['department_id'] ?? null;
 
-                if ($facultyId && $courseId && $semesterId) {
-                    if ($schedulingService->addFacultyLoad($facultyId, $courseId, $semesterId, $roomId, $timeSlots)) {
-                        $_SESSION['flash'] = ['type' => 'success', 'message' => 'Faculty load added successfully'];
-                        header('Location: /chair/faculty');
-                        exit;
-                    } else {
-                        throw new Exception("Failed to add faculty load");
-                    }
+                if ($facultyId && $newDepartmentId) {
+                    $query = "UPDATE faculty SET department_id = :department_id, updated_at = NOW() 
+                          WHERE faculty_id = :faculty_id";
+                    $stmt = $db->prepare($query);
+                    $stmt->execute([
+                        ':department_id' => $newDepartmentId,
+                        ':faculty_id' => $facultyId
+                    ]);
+                    $_SESSION['flash'] = ['type' => 'success', 'message' => 'Faculty added to department successfully'];
+                    header('Location: /chair/faculty');
+                    exit;
                 } else {
-                    throw new Exception("Missing required fields for adding load");
+                    throw new Exception("Missing required fields for adding faculty to department");
                 }
             }
 
             $faculty = $schedulingService->getFacultyMembers($departmentId);
-            $courses = $schedulingService->getDepartmentCourses($departmentId);
-            $semesters = $schedulingService->getAllSemesters();
-            $classrooms = $schedulingService->getAvailableClassrooms();
+            $departments = $schedulingService->getAllDepartments();
             $stats = ['pendingApprovals' => count($schedulingService->getPendingApprovals($departmentId))];
 
-            // Extract view path from class name
+            // Extract view path
             $viewPath = str_replace('Controller', '', basename(get_class($this)));
             $viewFile = strtolower($viewPath) . '/faculty.php';
             $fullPath = __DIR__ . '/../views/' . $viewFile;
 
-            // Verify view exists
             if (!file_exists($fullPath)) {
                 throw new Exception("View file not found: $viewFile");
             }
@@ -175,53 +174,10 @@ class ChairController
             }
 
             $departmentId = $_SESSION['user']['department_id'];
-
-            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_classroom'])) {
-                $roomName = $_POST['room_name'] ?? '';
-                $building = $_POST['building'] ?? '';
-                $capacity = (int)($_POST['capacity'] ?? 0);
-                $isLab = isset($_POST['is_lab']) ? 1 : 0;
-                $hasProjector = isset($_POST['has_projector']) ? 1 : 0;
-                $hasSmartboard = isset($_POST['has_smartboard']) ? 1 : 0;
-                $hasComputers = isset($_POST['has_computers']) ? 1 : 0;
-                $shared = isset($_POST['shared']) ? 1 : 0;
-                $isActive = isset($_POST['is_active']) ? 1 : 0;
-
-                $query = "INSERT INTO classrooms (room_name, building, capacity, is_lab, has_projector, has_smartboard, has_computers, shared, is_active, department_id) 
-                          VALUES (:room_name, :building, :capacity, :is_lab, :has_projector, :has_smartboard, :has_computers, :shared, :is_active, :department_id)";
-                $stmt = $this->db->prepare($query);
-                $stmt->execute([
-                    ':room_name' => $roomName,
-                    ':building' => $building,
-                    ':capacity' => $capacity,
-                    ':is_lab' => $isLab,
-                    ':has_projector' => $hasProjector,
-                    ':has_smartboard' => $hasSmartboard,
-                    ':has_computers' => $hasComputers,
-                    ':shared' => $shared,
-                    ':is_active' => $isActive,
-                    ':department_id' => $departmentId
-                ]);
-
-                $_SESSION['flash'] = ['type' => 'success', 'message' => 'Classroom added successfully'];
-                header('Location: /chair/classroom');
-                exit;
-            }
-
             $classrooms = $this->schedulingService->getAvailableClassrooms($departmentId);
             $stats = ['pendingApprovals' => count($this->schedulingService->getPendingApprovals($departmentId))];
 
-            // Extract view path from class name
-            $viewPath = str_replace('Controller', '', basename(get_class($this)));
-            $viewFile = strtolower($viewPath) . '/classroom.php';
-            $fullPath = __DIR__ . '/../views/' . $viewFile;
-
-            // Verify view exists
-            if (!file_exists($fullPath)) {
-                throw new Exception("View file not found: $viewFile");
-            }
-
-            require $fullPath;
+            require __DIR__ . '/../views/chair/classroom.php';
         } catch (Exception $e) {
             $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
             header('Location: /chair/classroom');
@@ -255,35 +211,26 @@ class ChairController
                 $roomName = $_POST['room_name'] ?? $classroom['room_name'];
                 $building = $_POST['building'] ?? $classroom['building'];
                 $capacity = (int)($_POST['capacity'] ?? $classroom['capacity']);
-                $isLab = isset($_POST['is_lab']) ? 1 : 0;
-                $hasProjector = isset($_POST['has_projector']) ? 1 : 0;
-                $hasSmartboard = isset($_POST['has_smartboard']) ? 1 : 0;
-                $hasComputers = isset($_POST['has_computers']) ? 1 : 0;
+                $roomType = $_POST['room_type'] ?? $classroom['room_type'];
                 $shared = isset($_POST['shared']) ? 1 : 0;
-                $isActive = isset($_POST['is_active']) ? 1 : 0;
+                $availability = $_POST['availability'] ?? $classroom['availability'];
 
                 $updateQuery = "UPDATE classrooms SET 
-                                room_name = :room_name, 
-                                building = :building, 
-                                capacity = :capacity, 
-                                is_lab = :is_lab, 
-                                has_projector = :has_projector, 
-                                has_smartboard = :has_smartboard, 
-                                has_computers = :has_computers, 
-                                shared = :shared, 
-                                is_active = :is_active 
-                                WHERE room_id = :room_id AND (department_id = :department_id OR shared = 1)";
+                            room_name = :room_name, 
+                            building = :building, 
+                            capacity = :capacity, 
+                            room_type = :room_type, 
+                            shared = :shared, 
+                            availability = :availability 
+                            WHERE room_id = :room_id AND (department_id = :department_id OR shared = 1)";
                 $stmt = $this->db->prepare($updateQuery);
                 $stmt->execute([
                     ':room_name' => $roomName,
                     ':building' => $building,
                     ':capacity' => $capacity,
-                    ':is_lab' => $isLab,
-                    ':has_projector' => $hasProjector,
-                    ':has_smartboard' => $hasSmartboard,
-                    ':has_computers' => $hasComputers,
+                    ':room_type' => $roomType,
                     ':shared' => $shared,
-                    ':is_active' => $isActive,
+                    ':availability' => $availability,
                     ':room_id' => $roomId,
                     ':department_id' => $departmentId
                 ]);

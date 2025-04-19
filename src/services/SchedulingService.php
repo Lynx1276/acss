@@ -665,9 +665,9 @@ class SchedulingService
     public function getAvailableClassrooms($departmentId = null)
     {
         try {
-            $query = "SELECT room_id, room_name, building, capacity, is_lab, has_projector, has_smartboard, has_computers, shared, is_active 
+            $query = "SELECT room_id, room_name, building, capacity, room_type, shared, availability 
                       FROM classrooms 
-                      WHERE is_active = 1";
+                      WHERE availability = 'Available'";
             if ($departmentId) {
                 $query .= " AND (department_id = :department_id OR shared = 1)";
             }
@@ -1210,26 +1210,86 @@ class SchedulingService
     public function getRoomUtilization($semesterId)
     {
         $query = "SELECT 
-                    r.room_id,
-                    r.room_name,
-                    r.building,
-                    r.capacity,
-                    r.is_lab,
-                    COUNT(s.schedule_id) as scheduled_classes,
-                    SEC_TO_TIME(SUM(TIME_TO_SEC(TIMEDIFF(s.end_time, s.start_time)))) as total_hours,
-                    (SELECT COUNT(*) FROM room_reservations rr 
-                     WHERE rr.room_id = r.room_id 
-                     AND rr.approval_status = 'Approved') as reservations_count
-                  FROM classrooms r
-                  LEFT JOIN schedules s ON r.room_id = s.room_id AND s.semester_id = :semesterId
-                  WHERE r.is_active = TRUE
-                  GROUP BY r.room_id
-                  ORDER BY r.building, r.room_name";
+                r.room_id,
+                r.room_name,
+                r.building,
+                r.capacity,
+                r.room_type,
+                COUNT(s.schedule_id) as scheduled_classes,
+                SEC_TO_TIME(SUM(TIME_TO_SEC(TIMEDIFF(s.end_time, s.start_time)))) as total_hours,
+                (SELECT COUNT(*) FROM room_reservations rr 
+                 WHERE rr.room_id = r.room_id 
+                 AND rr.approval_status = 'Approved') as reservations_count
+              FROM classrooms r
+              LEFT JOIN schedules s ON r.room_id = s.room_id AND s.semester_id = :semesterId
+              WHERE r.availability = 'available'
+              GROUP BY r.room_id
+              ORDER BY r.building, r.room_name";
 
         $stmt = $this->db->prepare($query);
         $stmt->bindParam(':semesterId', $semesterId);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function getClassroomUtilization($departmentId, $semesterId)
+    {
+        // Get classrooms assigned to department's courses
+        $query = "SELECT 
+            r.room_id,
+            r.room_name,
+            r.building,
+            r.capacity,
+            r.room_type,
+            COUNT(s.schedule_id) as scheduled_classes,
+            SEC_TO_TIME(SUM(TIME_TO_SEC(TIMEDIFF(s.end_time, s.start_time)))) as scheduled_hours,
+            (SELECT COUNT(*) FROM room_reservations rr 
+             WHERE rr.room_id = r.room_id 
+             AND rr.approval_status = 'Approved') as reservations_count
+          FROM classrooms r
+          JOIN schedules s ON r.room_id = s.room_id
+          JOIN courses c ON s.course_id = c.course_id
+          WHERE c.department_id = :departmentId
+          AND s.semester_id = :semesterId
+          AND r.availability = 'available'
+          GROUP BY r.room_id
+          ORDER BY r.building, r.room_name";
+
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([
+            ':departmentId' => $departmentId,
+            ':semesterId' => $semesterId
+        ]);
+        $utilization = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Calculate utilization percentage
+        $totalRooms = count($utilization);
+        $totalHours = 0;
+        $totalCapacity = 0;
+        $usedCapacity = 0;
+
+        foreach ($utilization as &$room) {
+            $roomHours = strtotime($room['scheduled_hours']) - strtotime('TODAY');
+            $totalHours += $roomHours;
+            $totalCapacity += $room['capacity'];
+
+            // Estimate used capacity (simplified - would need student counts)
+            $usedCapacity += $room['capacity'] * min(1, $roomHours / 40); // 40 = max weekly hours
+
+            // Add utilization percentage
+            $room['utilization_percent'] = min(100, round(($roomHours / 40) * 100));
+        }
+
+        $avgUtilization = $totalRooms > 0 ? round(($totalHours / ($totalRooms * 40)) * 100) : 0;
+        $capacityUtilization = $totalCapacity > 0 ? round(($usedCapacity / $totalCapacity) * 100) : 0;
+
+        return [
+            'classrooms' => $utilization,
+            'total_classrooms' => $totalRooms,
+            'total_hours' => gmdate('H:i', $totalHours),
+            'average_utilization' => $avgUtilization,
+            'capacity_utilization' => $capacityUtilization
+        ];
     }
 
     public function getSemesterInfo($semesterId)
@@ -1278,10 +1338,19 @@ class SchedulingService
         }
     }
 
-    /**
-     * Get the current active semester
-     * @return array Semester data
-     */
+    public function getAllDepartments()
+    {
+        try {
+            $query = "SELECT department_id, department_name FROM departments ORDER BY department_name";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log("Failed to fetch departments: " . $e->getMessage());
+            return [];
+        }
+    }
+
     public function getCurrentSemester()
     {
         $query = "SELECT * FROM semesters WHERE is_current = TRUE LIMIT 1";
@@ -1439,66 +1508,6 @@ class SchedulingService
         $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-
-    public function getClassroomUtilization($departmentId, $semesterId)
-    {
-        // Get classrooms assigned to department's courses
-        $query = "SELECT 
-                r.room_id,
-                r.room_name,
-                r.building,
-                r.capacity,
-                r.is_lab,
-                COUNT(s.schedule_id) as scheduled_classes,
-                SEC_TO_TIME(SUM(TIME_TO_SEC(TIMEDIFF(s.end_time, s.start_time)))) as scheduled_hours,
-                (SELECT COUNT(*) FROM room_reservations rr 
-                 WHERE rr.room_id = r.room_id 
-                 AND rr.approval_status = 'Approved') as reservations_count
-              FROM classrooms r
-              JOIN schedules s ON r.room_id = s.room_id
-              JOIN courses c ON s.course_id = c.course_id
-              WHERE c.department_id = :departmentId
-              AND s.semester_id = :semesterId
-              GROUP BY r.room_id
-              ORDER BY r.building, r.room_name";
-
-        $stmt = $this->db->prepare($query);
-        $stmt->execute([
-            ':departmentId' => $departmentId,
-            ':semesterId' => $semesterId
-        ]);
-        $utilization = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        // Calculate utilization percentage
-        $totalRooms = count($utilization);
-        $totalHours = 0;
-        $totalCapacity = 0;
-        $usedCapacity = 0;
-
-        foreach ($utilization as &$room) {
-            $roomHours = strtotime($room['scheduled_hours']) - strtotime('TODAY');
-            $totalHours += $roomHours;
-            $totalCapacity += $room['capacity'];
-
-            // Estimate used capacity (simplified - would need student counts)
-            $usedCapacity += $room['capacity'] * min(1, $roomHours / 40); // 40 = max weekly hours
-
-            // Add utilization percentage
-            $room['utilization_percent'] = min(100, round(($roomHours / 40) * 100));
-        }
-
-        $avgUtilization = $totalRooms > 0 ? round(($totalHours / ($totalRooms * 40)) * 100) : 0;
-        $capacityUtilization = $totalCapacity > 0 ? round(($usedCapacity / $totalCapacity) * 100) : 0;
-
-        return [
-            'classrooms' => $utilization,
-            'total_classrooms' => $totalRooms,
-            'total_hours' => gmdate('H:i', $totalHours),
-            'average_utilization' => $avgUtilization,
-            'capacity_utilization' => $capacityUtilization
-        ];
     }
 
     // Removed duplicate method declaration to resolve the error.
