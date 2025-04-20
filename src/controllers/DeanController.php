@@ -164,6 +164,59 @@ class DeanController
         AuthMiddleware::handle('dean');
         try {
             $this->checkSession();
+            $collegeId = $_SESSION['user']['college_id'];
+            $userId = $_SESSION['user']['user_id'];
+
+            // Fetch user profile with department and college names
+            $_SESSION['user'] = $this->deanService->getUserProfile($userId);
+
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['_method']) && $_POST['_method'] === 'PATCH') {
+                try {
+                    if (isset($_POST['update_profile'])) {
+                        $data = [
+                            'first_name' => trim($_POST['first_name'] ?? ''),
+                            'middle_name' => trim($_POST['middle_name'] ?? ''),
+                            'last_name' => trim($_POST['last_name'] ?? ''),
+                            'suffix' => trim($_POST['suffix'] ?? ''),
+                            'username' => trim($_POST['username'] ?? ''),
+                            'email' => trim($_POST['email'] ?? ''),
+                            'phone' => trim($_POST['phone'] ?? ''),
+                            'current_profile_picture' => $_SESSION['user']['profile_picture'] ?? '/images/default-profile.png'
+                        ];
+                        if (empty($data['first_name']) || empty($data['last_name']) || empty($data['username']) || empty($data['email'])) {
+                            throw new Exception("Required fields are missing");
+                        }
+                        if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+                            throw new Exception("Invalid email format");
+                        }
+                        $file = $_FILES['profile_picture'] ?? null;
+                        $this->deanService->updateProfile($userId, $data, $file);
+                        $_SESSION['flash'] = ['type' => 'success', 'message' => 'Profile updated successfully'];
+                    } elseif (isset($_POST['change_password'])) {
+                        $currentPassword = $_POST['current_password'] ?? '';
+                        $newPassword = $_POST['new_password'] ?? '';
+                        $confirmPassword = $_POST['confirm_password'] ?? '';
+                        if (empty($currentPassword) || empty($newPassword) || empty($confirmPassword)) {
+                            throw new Exception("All password fields are required");
+                        }
+                        if ($newPassword !== $confirmPassword) {
+                            throw new Exception("New passwords do not match");
+                        }
+                        if (strlen($newPassword) < 8) {
+                            throw new Exception("New password must be at least 8 characters");
+                        }
+                        $this->deanService->changePassword($userId, $currentPassword, $newPassword);
+                        $_SESSION['flash'] = ['type' => 'success', 'message' => 'Password changed successfully'];
+                    }
+                    header('Location: /dean/profile');
+                    exit;
+                } catch (Exception $e) {
+                    $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
+                }
+            }
+
+            $pendingRequests = $this->deanService->getPendingFacultyRequests($collegeId);
+            $pendingCount = !empty($pendingRequests) && isset($pendingRequests[0]['count']) ? (int)$pendingRequests[0]['count'] : 0;
             $currentUri = '/dean/profile';
             require __DIR__ . '/../views/dean/profile.php';
         } catch (Exception $e) {
@@ -172,6 +225,7 @@ class DeanController
             header('Location: /dean/profile');
             exit;
         }
+    
     }
 
     public function settings()

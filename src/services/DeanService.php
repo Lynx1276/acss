@@ -214,4 +214,118 @@ class DeanService
         $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
+
+    public function getUserProfile($userId)
+    {
+        $query = "SELECT u.*, d.department_name, c.college_name
+                  FROM users u
+                  LEFT JOIN departments d ON u.department_id = d.department_id
+                  LEFT JOIN colleges c ON u.college_id = c.college_id
+                  WHERE u.user_id = :user_id AND u.role_id = 4";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([':user_id' => $userId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function updateProfile($userId, $data, $file = null)
+    {
+        // Check for duplicate username or email
+        $query = "SELECT user_id FROM users 
+                  WHERE (username = :username OR email = :email) 
+                  AND user_id != :user_id";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([
+            ':username' => $data['username'],
+            ':email' => $data['email'],
+            ':user_id' => $userId
+        ]);
+        if ($stmt->fetch()) {
+            throw new Exception("Username or email already in use");
+        }
+
+        // Handle profile picture upload
+        $profilePicture = $data['current_profile_picture'];
+        if ($file && $file['tmp_name']) {
+            $uploadDir = __DIR__ . '/../../public/uploads/profiles/';
+            if (!is_dir($uploadDir)) {
+                mkdir($uploadDir, 0755, true);
+            }
+            $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+            $filename = 'profile_' . $userId . '_' . time() . '.' . $ext;
+            $destination = $uploadDir . $filename;
+            if (move_uploaded_file($file['tmp_name'], $destination)) {
+                $profilePicture = '/uploads/profiles/' . $filename;
+                // Delete old profile picture if it exists and is not default
+                if ($data['current_profile_picture'] && $data['current_profile_picture'] !== '/images/default-profile.png' && file_exists(__DIR__ . '/../../public' . $data['current_profile_picture'])) {
+                    unlink(__DIR__ . '/../../public' . $data['current_profile_picture']);
+                }
+            } else {
+                throw new Exception("Failed to upload profile picture");
+            }
+        }
+
+        // Update user data
+        $query = "UPDATE users 
+                  SET first_name = :first_name, middle_name = :middle_name, 
+                      last_name = :last_name, suffix = :suffix, 
+                      username = :username, email = :email, phone = :phone,
+                      profile_picture = :profile_picture, updated_at = NOW()
+                  WHERE user_id = :user_id AND role_id = 4";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([
+            ':first_name' => $data['first_name'],
+            ':middle_name' => $data['middle_name'] ?: null,
+            ':last_name' => $data['last_name'],
+            ':suffix' => $data['suffix'] ?: null,
+            ':username' => $data['username'],
+            ':email' => $data['email'],
+            ':phone' => $data['phone'] ?: null,
+            ':profile_picture' => $profilePicture,
+            ':user_id' => $userId
+        ]);
+
+        if ($stmt->rowCount() === 0) {
+            throw new Exception("Failed to update profile or unauthorized");
+        }
+
+        // Update session
+        $_SESSION['user'] = array_merge($_SESSION['user'], [
+            'first_name' => $data['first_name'],
+            'middle_name' => $data['middle_name'],
+            'last_name' => $data['last_name'],
+            'suffix' => $data['suffix'],
+            'username' => $data['username'],
+            'email' => $data['email'],
+            'phone' => $data['phone'],
+            'profile_picture' => $profilePicture
+        ]);
+    }
+
+    public function changePassword($userId, $currentPassword, $newPassword)
+    {
+        // Verify current password
+        $query = "SELECT password_hash FROM users WHERE user_id = :user_id AND role_id = 4";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([':user_id' => $userId]);
+        $user = $stmt->fetch();
+
+        if (!$user || !password_verify($currentPassword, $user['password_hash'])) {
+            throw new Exception("Current password is incorrect");
+        }
+
+        // Update password
+        $newPasswordHash = password_hash($newPassword, PASSWORD_DEFAULT);
+        $query = "UPDATE users 
+                  SET password_hash = :password_hash, updated_at = NOW()
+                  WHERE user_id = :user_id";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([
+            ':password_hash' => $newPasswordHash,
+            ':user_id' => $userId
+        ]);
+
+        if ($stmt->rowCount() === 0) {
+            throw new Exception("Failed to update password");
+        }
+    }
 }

@@ -76,183 +76,71 @@ class CurriculumService
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-    /**
-     * Search courses by code, name, and optionally department
-     * @param string $searchTerm
-     * @param int|null $departmentId
-     * @return array
-     */
     public function searchCourses($searchTerm, $departmentId = null)
     {
-        $query = "SELECT c.course_id, c.course_code, c.course_name, c.units, c.semester, c.year_level, 
-                         d.department_name
+        $query = "SELECT c.course_id, c.course_code, c.course_name, c.units, d.department_name, c.year_level, c.semester
                   FROM courses c
                   JOIN departments d ON c.department_id = d.department_id
-                  WHERE (c.course_code LIKE :search_term OR c.course_name LIKE :search_term)
-                  AND c.is_active = 1";
-        $params = [':search_term' => "%$searchTerm%"];
+                  WHERE (c.course_code LIKE :search_term OR c.course_name LIKE :search_term)";
+        $params = ['search_term' => "%$searchTerm%"];
         if ($departmentId) {
             $query .= " AND c.department_id = :department_id";
-            $params[':department_id'] = $departmentId;
+            $params['department_id'] = $departmentId;
         }
-        $query .= " ORDER BY c.course_code";
-
         $stmt = $this->db->prepare($query);
         $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    /**
-     * Create a new course
-     * @param array $data
-     * @return int Course ID
-     * @throws Exception
-     */
-    public function createCourse($data)
-    {
-        // Validate required fields
-        if (empty($data['course_code'])) {
-            throw new Exception("Course code is required");
-        }
-        if (empty($data['course_name'])) {
-            throw new Exception("Course name is required");
-        }
-        if (empty($data['units'])) {
-            throw new Exception("Units are required");
-        }
-        if (empty($data['semester'])) {
-            throw new Exception("Semester is required");
-        }
-        if (empty($data['department_id'])) {
-            throw new Exception("Department ID is required");
-        }
-
-        // Check for duplicate course code
-        $query = "SELECT COUNT(*) FROM courses WHERE course_code = :course_code";
-        $stmt = $this->db->prepare($query);
-        $stmt->execute([':course_code' => $data['course_code']]);
-        if ($stmt->fetchColumn() > 0) {
-            throw new Exception("Course code already exists");
-        }
-
-        $query = "INSERT INTO courses 
-                  (course_code, course_name, units, lecture_hours, lab_hours, semester, year_level, 
-                   department_id, program_id, created_at, updated_at, is_active)
-                  VALUES (:course_code, :course_name, :units, :lecture_hours, :lab_hours, :semester, 
-                          :year_level, :department_id, :program_id, NOW(), NOW(), 1)";
-        $stmt = $this->db->prepare($query);
-        $stmt->execute([
-            ':course_code' => $data['course_code'],
-            ':course_name' => $data['course_name'],
-            ':units' => $data['units'],
-            ':lecture_hours' => $data['lecture_hours'] ?? 0,
-            ':lab_hours' => $data['lab_hours'] ?? 0,
-            ':semester' => $data['semester'],
-            ':year_level' => $data['year_level'] ?? null,
-            ':department_id' => $data['department_id'],
-            ':program_id' => $data['program_id'] ?? null
-        ]);
-        return $this->db->lastInsertId();
-    }
-
-    /**
-     * Create a curriculum manually with selected courses
-     * @param int $departmentId
-     * @param array $data
-     * @param int $userId
-     * @return int Curriculum ID
-     * @throws Exception
-     */
     public function createCurriculumManually($departmentId, $data, $userId)
     {
+        $this->db->beginTransaction();
         try {
-            $this->db->beginTransaction();
-
-            // Validate curriculum data
-            if (empty($data['name'])) {
-                throw new Exception("Curriculum name is required");
-            }
-            if (empty($data['code'])) {
-                throw new Exception("Curriculum code is required");
-            }
-            if (empty($data['effective_year'])) {
-                throw new Exception("Effective year is required");
-            }
-            if (empty($data['program_name'])) {
-                throw new Exception("Program name is required");
-            }
-
-            // Check for duplicate curriculum code
-            $query = "SELECT COUNT(*) FROM curricula WHERE curriculum_code = :curriculum_code";
+            $query = "INSERT INTO curricula (curriculum_name, curriculum_code, description, total_units, department_id, effective_year, status, created_at, updated_at)
+                      VALUES (:name, :code, :description, :total_units, :department_id, :effective_year, 'Draft', NOW(), NOW())";
             $stmt = $this->db->prepare($query);
-            $stmt->execute([':curriculum_code' => $data['code']]);
-            if ($stmt->fetchColumn() > 0) {
-                throw new Exception("Curriculum code already exists");
-            }
+            $stmt->execute([
+                'name' => $data['name'],
+                'code' => $data['code'],
+                'description' => $data['program_name'],
+                'total_units' => 0, // Will be updated
+                'department_id' => $departmentId,
+                'effective_year' => $data['effective_year']
+            ]);
+            $curriculumId = $this->db->lastInsertId();
 
-            // Calculate total units from selected courses
             $totalUnits = 0;
-            $selectedCourses = [];
             if (!empty($data['courses'])) {
+                $query = "INSERT INTO curriculum_courses (curriculum_id, course_id, year_level, semester, subject_type, is_core, created_at)
+                          VALUES (:curriculum_id, :course_id, :year_level, :semester, :subject_type, 1, NOW())";
+                $stmt = $this->db->prepare($query);
                 foreach ($data['courses'] as $courseId => $courseData) {
-                    if (isset($courseData['selected']) && $courseData['selected']) {
-                        $course = $this->getCourseById($courseId);
-                        if (!$course) {
-                            throw new Exception("Invalid course ID: $courseId");
-                        }
+                    if (isset($courseData['selected'])) {
+                        $courseQuery = "SELECT units FROM courses WHERE course_id = :course_id";
+                        $courseStmt = $this->db->prepare($courseQuery);
+                        $courseStmt->execute(['course_id' => $courseId]);
+                        $course = $courseStmt->fetch(PDO::FETCH_ASSOC);
                         $totalUnits += $course['units'];
-                        $selectedCourses[$courseId] = $courseData;
+
+                        $stmt->execute([
+                            'curriculum_id' => $curriculumId,
+                            'course_id' => $courseId,
+                            'year_level' => $courseData['year_level'],
+                            'semester' => $courseData['semester'],
+                            'subject_type' => $courseData['subject_type']
+                        ]);
                     }
                 }
             }
 
-            // Create curriculum
-            $query = "INSERT INTO curricula 
-                      (curriculum_name, curriculum_code, description, total_units, department_id, 
-                       effective_year, status, created_at, updated_at)
-                      VALUES (:name, :code, :description, :total_units, :department_id, 
-                              :effective_year, 'Draft', NOW(), NOW())";
-            $stmt = $this->db->prepare($query);
-            $stmt->execute([
-                ':name' => $data['name'],
-                ':code' => $data['code'],
-                ':description' => $data['program_name'],
-                ':total_units' => $totalUnits,
-                ':department_id' => $departmentId,
-                ':effective_year' => $data['effective_year']
-            ]);
-            $curriculumId = $this->db->lastInsertId();
+            $updateQuery = "UPDATE curricula SET total_units = :total_units WHERE curriculum_id = :curriculum_id";
+            $updateStmt = $this->db->prepare($updateQuery);
+            $updateStmt->execute(['total_units' => $totalUnits, 'curriculum_id' => $curriculumId]);
 
-            // Add selected courses to curriculum_courses
-            foreach ($selectedCourses as $courseId => $courseData) {
-                if (empty($courseData['year_level'])) {
-                    throw new Exception("Year level is required for course: {$courseData['course_code']}");
-                }
-                if (empty($courseData['semester'])) {
-                    throw new Exception("Semester is required for course: {$courseData['course_code']}");
-                }
-                $query = "INSERT INTO curriculum_courses 
-                          (curriculum_id, course_id, year_level, semester, subject_type, is_core, created_at)
-                          VALUES (:curriculum_id, :course_id, :year_level, :semester, :subject_type, 1, NOW())";
-                $stmt = $this->db->prepare($query);
-                $stmt->execute([
-                    ':curriculum_id' => $curriculumId,
-                    ':course_id' => $courseId,
-                    ':year_level' => $courseData['year_level'],
-                    ':semester' => $courseData['semester'],
-                    ':subject_type' => $courseData['subject_type'] ?? 'Major'
-                ]);
-            }
-
-            // Create curriculum approval
-            $query = "INSERT INTO curriculum_approvals 
-                      (curriculum_id, requested_by, approval_level, status, created_at, updated_at)
-                      VALUES (:curriculum_id, :requested_by, 1, 'Pending', NOW(), NOW())";
-            $stmt = $this->db->prepare($query);
-            $stmt->execute([
-                ':curriculum_id' => $curriculumId,
-                ':requested_by' => $userId
-            ]);
+            $approvalQuery = "INSERT INTO curriculum_approvals (curriculum_id, requested_by, approval_level, status, created_at, updated_at)
+                             VALUES (:curriculum_id, :requested_by, 1, 'Pending', NOW(), NOW())";
+            $approvalStmt = $this->db->prepare($approvalQuery);
+            $approvalStmt->execute(['curriculum_id' => $curriculumId, 'requested_by' => $userId]);
 
             $this->db->commit();
             return $curriculumId;
@@ -262,13 +150,143 @@ class CurriculumService
         }
     }
 
-    /**
-     * Create curriculum from file (placeholder for existing functionality)
-     * @param int $departmentId
-     * @param array $file
-     * @param int $userId
-     * @return int|null
-     */
+    public function createCourse($data)
+    {
+        $query = "INSERT INTO courses (course_code, course_name, units, lecture_hours, lab_hours, semester, year_level, department_id, created_at, updated_at)
+                  VALUES (:course_code, :course_name, :units, :lecture_hours, :lab_hours, :semester, :year_level, :department_id, NOW(), NOW())";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([
+            'course_code' => $data['course_code'],
+            'course_name' => $data['course_name'],
+            'units' => $data['units'],
+            'lecture_hours' => $data['lecture_hours'],
+            'lab_hours' => $data['lab_hours'],
+            'semester' => $data['semester'],
+            'year_level' => $data['year_level'],
+            'department_id' => $data['department_id']
+        ]);
+        return $this->db->lastInsertId();
+    }
+
+    public function getCurriculumById($curriculumId)
+    {
+        $query = "SELECT curriculum_id, curriculum_name, curriculum_code, description, total_units, department_id, effective_year, status
+                  FROM curricula WHERE curriculum_id = :curriculum_id";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute(['curriculum_id' => $curriculumId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function getCurriculumCourses($curriculumId)
+    {
+        $query = "SELECT cc.course_id, c.course_code, c.course_name, c.units, cc.year_level, cc.semester, cc.subject_type
+                  FROM curriculum_courses cc
+                  JOIN courses c ON cc.course_id = c.course_id
+                  WHERE cc.curriculum_id = :curriculum_id";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute(['curriculum_id' => $curriculumId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function updateCurriculum($curriculumId, $data, $departmentId)
+    {
+        $this->db->beginTransaction();
+        try {
+            $query = "UPDATE curricula 
+                      SET curriculum_name = :name, curriculum_code = :code, description = :description, 
+                          effective_year = :effective_year, total_units = :total_units, updated_at = NOW()
+                      WHERE curriculum_id = :curriculum_id AND department_id = :department_id";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute([
+                'name' => $data['name'],
+                'code' => $data['code'],
+                'description' => $data['program_name'],
+                'effective_year' => $data['effective_year'],
+                'total_units' => 0, // Will be updated
+                'curriculum_id' => $curriculumId,
+                'department_id' => $departmentId
+            ]);
+
+            $deleteQuery = "DELETE FROM curriculum_courses WHERE curriculum_id = :curriculum_id";
+            $deleteStmt = $this->db->prepare($deleteQuery);
+            $deleteStmt->execute(['curriculum_id' => $curriculumId]);
+
+            $totalUnits = 0;
+            if (!empty($data['courses'])) {
+                $insertQuery = "INSERT INTO curriculum_courses (curriculum_id, course_id, year_level, semester, subject_type, is_core, created_at)
+                                VALUES (:curriculum_id, :course_id, :year_level, :semester, :subject_type, 1, NOW())";
+                $insertStmt = $this->db->prepare($insertQuery);
+                foreach ($data['courses'] as $courseId => $courseData) {
+                    if (isset($courseData['selected'])) {
+                        $courseQuery = "SELECT units FROM courses WHERE course_id = :course_id";
+                        $courseStmt = $this->db->prepare($courseQuery);
+                        $courseStmt->execute(['course_id' => $courseId]);
+                        $course = $courseStmt->fetch(PDO::FETCH_ASSOC);
+                        $totalUnits += $course['units'];
+
+                        $insertStmt->execute([
+                            'curriculum_id' => $curriculumId,
+                            'course_id' => $courseId,
+                            'year_level' => $courseData['year_level'],
+                            'semester' => $courseData['semester'],
+                            'subject_type' => $courseData['subject_type']
+                        ]);
+                    }
+                }
+            }
+
+            $updateQuery = "UPDATE curricula SET total_units = :total_units WHERE curriculum_id = :curriculum_id";
+            $updateStmt = $this->db->prepare($updateQuery);
+            $updateStmt->execute(['total_units' => $totalUnits, 'curriculum_id' => $curriculumId]);
+
+            $this->db->commit();
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    public function deleteCurriculum($curriculumId, $departmentId)
+    {
+        $this->db->beginTransaction();
+        try {
+            $deleteCourses = "DELETE FROM curriculum_courses WHERE curriculum_id = :curriculum_id";
+            $stmtCourses = $this->db->prepare($deleteCourses);
+            $stmtCourses->execute(['curriculum_id' => $curriculumId]);
+
+            $deleteApprovals = "DELETE FROM curriculum_approvals WHERE curriculum_id = :curriculum_id";
+            $stmtApprovals = $this->db->prepare($deleteApprovals);
+            $stmtApprovals->execute(['curriculum_id' => $curriculumId]);
+
+            $deleteQuery = "DELETE FROM curricula WHERE curriculum_id = :curriculum_id AND department_id = :department_id";
+            $stmt = $this->db->prepare($deleteQuery);
+            $stmt->execute(['curriculum_id' => $curriculumId, 'department_id' => $departmentId]);
+
+            $this->db->commit();
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    public function toggleCurriculumStatus($curriculumId, $departmentId)
+    {
+        $curriculum = $this->getCurriculumById($curriculumId);
+        if (!$curriculum || $curriculum['department_id'] != $departmentId) {
+            throw new Exception("Curriculum not found or unauthorized");
+        }
+        $newStatus = $curriculum['status'] === 'Active' ? 'Inactive' : 'Active';
+        $query = "UPDATE curricula SET status = :status, updated_at = NOW() 
+                  WHERE curriculum_id = :curriculum_id AND department_id = :department_id";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([
+            'status' => $newStatus,
+            'curriculum_id' => $curriculumId,
+            'department_id' => $departmentId
+        ]);
+        return $newStatus;
+    }
+
     public function createCurriculumFromFile($departmentId, $file, $userId)
     {
         // Implement file upload logic as needed

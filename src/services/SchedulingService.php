@@ -1403,7 +1403,7 @@ class SchedulingService
 
     public function getCurrentSemester()
     {
-        $query = "SELECT * FROM semesters WHERE is_current = TRUE LIMIT 1";
+        $query = "SELECT * FROM semesters WHERE is_current = 1 LIMIT 1";
         $stmt = $this->db->prepare($query);
         $stmt->execute();
         return $stmt->fetch(PDO::FETCH_ASSOC);
