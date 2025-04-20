@@ -1,54 +1,54 @@
 <?php
 // src/controllers/DeanController.php
 require_once __DIR__ . '/../config/Database.php';
-require_once __DIR__ . '/../services/SchedulingService.php';
+require_once __DIR__ . '/../services/DeanService.php';
 require_once __DIR__ . '/../middleware/AuthMiddleware.php';
+
+use App\config\Database;
 
 class DeanController
 {
     private $db;
-    private $schedulingService;
+    private $deanService;
 
     public function __construct()
     {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
         $this->db = (new Database())->connect();
-        $this->schedulingService = new SchedulingService();
+        $this->deanService = new DeanService();
+    }
+
+    private function checkSession()
+    {
+        if (!isset($_SESSION['user']['college_id']) || !isset($_SESSION['user']['user_id']) || !isset($_SESSION['user']['role_id']) || $_SESSION['user']['role_id'] != 4) {
+            error_log("Invalid session for dean: " . json_encode($_SESSION['user'] ?? 'null'));
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Please log in as a dean.'];
+            header('Location: /login');
+            exit;
+        }
     }
 
     public function dashboard()
     {
-        error_log("DeanController: Entering dashboard");
-        AuthMiddleware::handle('Dean');
-        error_log("DeanController: After AuthMiddleware");
-
+        AuthMiddleware::handle('dean');
         try {
-            // Verify user session and department
-            if (!isset($_SESSION['user']['college_id'])) {
-                throw new Exception("User college not set");
-            }
-
-            // Ensure user details are complete
-            if (!isset($_SESSION['user']['first_name']) || !isset($_SESSION['user']['last_name'])) {
-                $this->completeUserSession();
-            }
-
-            $userId = $_SESSION['user'];
+            $this->checkSession();
             $collegeId = $_SESSION['user']['college_id'];
+            $departmentFilter = $_GET['department_id'] ?? null;
 
-            $pendingRequests = $this->schedulingService->getPendingRequestsByCollege($collegeId);
-            error_log("DeanController: Fetched pending requests");
-            $facultyStats = $this->schedulingService->getCollegeFacultyStats($collegeId);
-            error_log("DeanController: Fetched faculty stats");
-            $currentSemester = $this->schedulingService->getCurrentSemester();
-            error_log("DeanController: Fetched current semester");
+            $pendingRequests = $this->deanService->getPendingFacultyRequests($collegeId, $departmentFilter);
+            $currentSemester = $this->deanService->getCurrentSemester();
+            $departments = $this->deanService->getCollegeDepartments($collegeId);
+            $metrics = $this->deanService->getCollegeMetrics($collegeId);
+            $schedules = $this->deanService->getClassSchedules($collegeId, $departmentFilter);
 
             $currentUri = '/dean/dashboard';
-            error_log("DeanController: Loading view");
             require __DIR__ . '/../views/dean/dashboard.php';
-            error_log("DeanController: View loaded");
         } catch (Exception $e) {
-            error_log("Dean dashboard error: " . $e->getMessage());
-            $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
+            error_log("Dean dashboard error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Failed to load dashboard. Please try again later.'];
             header('Location: /login');
             exit;
         }
@@ -56,99 +56,136 @@ class DeanController
 
     public function schedules()
     {
-        AuthMiddleware::handle('Dean');
+        AuthMiddleware::handle('dean');
         try {
-            if (!isset($_SESSION['user']['college_id'])) {
-                $_SESSION['error'] = "Department ID not set. Please log in again.";
-                header('Location: /login');
-                exit;
-            }
+            $this->checkSession();
+            $collegeId = $_SESSION['user']['college_id'];
+            $departmentFilter = $_GET['department_id'] ?? null;
 
-            $departmentId = $_SESSION['user']['college_id'];
-            $selectedSemesterId = $_GET['semester_id'] ?? null;
-            $semesters = $this->schedulingService->getSemesters();
-            $schedules = $this->schedulingService->getDepartmentSchedules($departmentId, $selectedSemesterId);
-            $currentUri = '/dean/schedule';
-            require __DIR__ . '/../views/dean/schedule.php';
+            $currentSemester = $this->deanService->getCurrentSemester();
+            $departments = $this->deanService->getCollegeDepartments($collegeId);
+            $schedules = $this->deanService->getClassSchedules($collegeId, $departmentFilter);
+
+            $currentUri = '/dean/schedules';
+            require __DIR__ . '/../views/dean/schedules.php';
         } catch (Exception $e) {
-            error_log("Dean schedules error: " . $e->getMessage());
-            $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
+            error_log("Dean schedules error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Failed to load schedules. Please try again later.'];
             header('Location: /dean/schedules');
             exit;
         }
     }
 
-    public function requests()
+    public function facultyRequests()
     {
-        AuthMiddleware::handle('Dean');
+        AuthMiddleware::handle('dean');
         try {
-            if (!isset($_SESSION['user']['college_id'])) {
-                $_SESSION['error'] = "Department ID not set. Please log in again.";
-                header('Location: /login');
-                exit;
-            }
-
-            $departmentId = $_SESSION['user']['college_id'];
-            $userId = $_SESSION['user'];
+            $this->checkSession();
+            $collegeId = $_SESSION['user']['college_id'];
+            $userId = $_SESSION['user']['user_id'];
+            $departmentFilter = $_GET['department_id'] ?? null;
 
             if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $requestId = (int)($_POST['request_id'] ?? 0);
                 $action = $_POST['action'] ?? '';
 
                 if ($requestId && in_array($action, ['approve', 'reject'])) {
-                    $this->schedulingService->updateRequestStatus($requestId, $action === 'approve' ? 'approved' : 'rejected', $userId);
-                    $_SESSION['flash'] = ['type' => 'success', 'message' => "Request " . ($action === 'approve' ? 'approved' : 'rejected') . " successfully"];
-                    header('Location: /dean/requests');
+                    $this->deanService->updateFacultyRequestStatus($requestId, $action === 'approve' ? 'approved' : 'rejected', $userId);
+                    $_SESSION['flash'] = ['type' => 'success', 'message' => "Faculty request " . ($action === 'approve' ? 'approved' : 'rejected') . " successfully"];
+                    header('Location: /dean/faculty-requests');
                     exit;
                 } else {
                     $_SESSION['flash'] = ['type' => 'error', 'message' => 'Invalid request action'];
                 }
             }
 
-            $requests = $this->schedulingService->getPendingRequestsByDepartment($departmentId);
-            $currentUri = '/dean/requests';
-            require __DIR__ . '/../views/dean/requests.php';
+            $requests = $this->deanService->getPendingFacultyRequests($collegeId, $departmentFilter);
+            $departments = $this->deanService->getCollegeDepartments($collegeId);
+            $currentUri = '/dean/faculty-requests';
+            require __DIR__ . '/../views/dean/faculty-requests.php';
         } catch (Exception $e) {
-            error_log("Dean requests error: " . $e->getMessage());
-            $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
-            header('Location: /dean/requests');
+            error_log("Dean faculty requests error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Failed to load faculty requests. Please try again later.'];
+            header('Location: /dean/faculty-requests');
             exit;
         }
     }
 
-    public function faculty()
+    public function accounts()
     {
-        AuthMiddleware::handle('Dean');
+        AuthMiddleware::handle('dean');
         try {
-            if (!isset($_SESSION['user']['college_id'])) {
-                $_SESSION['error'] = "Department ID not set. Please log in again.";
-                header('Location: /login');
-                exit;
+            $this->checkSession();
+            $collegeId = $_SESSION['user']['college_id'];
+            $userId = $_SESSION['user']['user_id'];
+            $departmentFilter = $_GET['department_id'] ?? null;
+
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['deactivate_account'])) {
+                $targetUserId = (int)($_POST['user_id'] ?? 0);
+                try {
+                    $this->deanService->deactivateAccount($targetUserId, $userId);
+                    $_SESSION['flash'] = ['type' => 'success', 'message' => 'Account deactivated successfully'];
+                    header('Location: /dean/accounts');
+                    exit;
+                } catch (Exception $e) {
+                    $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
+                }
             }
 
-            $departmentId = $_SESSION['user']['college_id'];
-            $facultyList = $this->schedulingService->getFacultyByDepartment($departmentId);
-            $currentUri = '/dean/faculty';
-            require __DIR__ . '/../views/dean/faculty.php';
+            $query = "SELECT u.user_id, u.first_name, u.last_name, u.username, r.role_name, 
+                             d.department_name
+                      FROM users u
+                      JOIN roles r ON u.role_id = r.role_id
+                      LEFT JOIN departments d ON u.department_id = d.department_id
+                      WHERE u.college_id = :college_id AND u.is_active = 1 
+                            AND u.role_id IN (5, 6)";
+            $params = [':college_id' => $collegeId];
+            if ($departmentFilter) {
+                $query .= " AND u.department_id = :department_id";
+                $params[':department_id'] = $departmentFilter;
+            }
+            $stmt = $this->db->prepare($query);
+            $stmt->execute($params);
+            $accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $departments = $this->deanService->getCollegeDepartments($collegeId);
+            $currentUri = '/dean/accounts';
+            require __DIR__ . '/../views/dean/accounts.php';
         } catch (Exception $e) {
-            error_log("Dean faculty error: " . $e->getMessage());
-            $_SESSION['flash'] = ['type' => 'error', 'message' => $e->getMessage()];
-            header('Location: /dean/faculty');
+            error_log("Dean accounts error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Failed to load accounts. Please try again later.'];
+            header('Location: /dean/accounts');
             exit;
         }
     }
 
-    private function completeUserSession()
+    public function profile()
     {
-        $stmt = $this->db->prepare("SELECT first_name, last_name FROM users WHERE user_id = ?");
-        $stmt->execute([$_SESSION['user']['id']]);
-        $user = $stmt->fetch();
+        AuthMiddleware::handle('dean');
+        try {
+            $this->checkSession();
+            $currentUri = '/dean/profile';
+            require __DIR__ . '/../views/dean/profile.php';
+        } catch (Exception $e) {
+            error_log("Dean profile error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Failed to load profile. Please try again later.'];
+            header('Location: /dean/profile');
+            exit;
+        }
+    }
 
-        if ($user) {
-            $_SESSION['user']['first_name'] = $user['first_name'];
-            $_SESSION['user']['last_name'] = $user['last_name'];
-        } else {
-            throw new Exception("User details not found");
+    public function settings()
+    {
+        AuthMiddleware::handle('dean');
+        try {
+            $this->checkSession();
+            $currentUri = '/dean/settings';
+            require __DIR__ . '/../views/dean/settings.php';
+        } catch (Exception $e) {
+            error_log("Dean settings error: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
+            $_SESSION['flash'] = ['type' => 'error', 'message' => 'Failed to load settings. Please try again later.'];
+            header('Location: /dean/settings');
+            exit;
         }
     }
 }

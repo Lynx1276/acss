@@ -123,23 +123,32 @@ function handleDeanRoutes($path)
             require_once __DIR__ . '/../src/controllers/DeanController.php';
             (new DeanController())->dashboard();
             break;
-        case '/dean/schedule':
+        case '/dean/schedules':
             require_once __DIR__ . '/../src/controllers/DeanController.php';
             (new DeanController())->schedules();
             break;
-        case '/dean/requests':
+        case '/dean/faculty-requests':
             require_once __DIR__ . '/../src/controllers/DeanController.php';
-            (new DeanController())->requests();
+            (new DeanController())->facultyRequests();
             break;
-        case '/dean/faculty':
+        case '/dean/accounts':
             require_once __DIR__ . '/../src/controllers/DeanController.php';
-            (new DeanController())->faculty();
+            (new DeanController())->accounts();
+            break;
+        case '/dean/profile':
+            require_once __DIR__ . '/../src/controllers/DeanController.php';
+            (new DeanController())->profile();
+            break;
+        case '/dean/settings':
+            require_once __DIR__ . '/../src/controllers/DeanController.php';
+            (new DeanController())->settings();
             break;
         case '/logout':
             require_once __DIR__ . '/../src/controllers/AuthController.php';
             (new AuthController())->logout();
             break;
         default:
+            http_response_code(404);
             echo "404 Not Found";
     }
     exit;

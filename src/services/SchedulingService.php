@@ -188,6 +188,56 @@ class SchedulingService
         }
     }
 
+    public function getCollegeDepartments($collegeId)
+    {
+        $query = "SELECT department_id, department_name 
+                  FROM departments 
+                  WHERE college_id = :college_id 
+                  ORDER BY department_name";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([':college_id' => $collegeId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function getClassSchedules($collegeId, $departmentId = null)
+    {
+        // Debug: Verify database, table, and column
+        $dbCheck = $this->db->query("SELECT DATABASE()")->fetchColumn();
+        $tableCheck = $this->db->query("SHOW TABLES LIKE 'schedules'")->rowCount();
+        $columnCheck = $this->db->query("SELECT column_name FROM information_schema.columns 
+                                         WHERE table_name = 'schedules' AND column_name = 'course_id'")->rowCount();
+        $sectionCoursesCheck = $this->db->query("SHOW TABLES LIKE 'section_courses'")->rowCount();
+        error_log("Database: $dbCheck, Schedules table exists: $tableCheck, course_id column exists: $columnCheck, section_courses table exists: $sectionCoursesCheck");
+
+        $query = "SELECT s.schedule_id, c.course_code, sec.section_name,
+                         f.first_name AS faculty_first_name, f.last_name AS faculty_last_name,
+                         r.room_name, s.day_of_week, s.start_time, s.end_time, 
+                         s.schedule_type, s.status, d.department_name
+                  FROM schedules s
+                  JOIN courses c ON s.course_id = c.course_id
+                  JOIN sections sec ON s.section_id = sec.section_id
+                  JOIN section_courses sc ON sec.section_id = sc.section_id AND sc.course_id = c.course_id
+                  JOIN faculty f ON s.faculty_id = f.faculty_id
+                  LEFT JOIN classrooms r ON s.room_id = r.room_id
+                  JOIN departments d ON c.department_id = d.department_id
+                  JOIN semesters sem ON s.semester_id = sem.semester_id
+                  WHERE d.college_id = :college_id AND sem.is_current = 1";
+        $params = [':college_id' => $collegeId];
+        if ($departmentId) {
+            $query .= " AND c.department_id = :department_id";
+            $params[':department_id'] = $departmentId;
+        }
+        $query .= " ORDER BY FIELD(s.day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'), 
+                            s.start_time";
+        try {
+            $stmt = $this->db->prepare($query);
+            $stmt->execute($params);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log("getClassSchedules error: " . $e->getMessage() . " in " . __FILE__ . ":" . __LINE__);
+            throw new Exception("Failed to fetch schedules: " . $e->getMessage());
+        }
+    }
 
     public function generateSchedule($semesterId, $departmentId, $maxSections = 5, $constraints = [], $yearLevel = 'all')
     {
@@ -2252,6 +2302,162 @@ class SchedulingService
         } catch (Exception $e) {
             error_log("Fetch version error: " . $e->getMessage());
             return [];
+        }
+    }
+
+    public function getPendingFacultyRequests($collegeId, $departmentId = null)
+    {
+        $query = "SELECT fr.request_id, fr.first_name, fr.last_name, fr.username, 
+                         fr.email, fr.academic_rank, d.department_name, fr.created_at
+                  FROM faculty_requests fr
+                  JOIN departments d ON fr.department_id = d.department_id
+                  WHERE fr.college_id = :college_id AND fr.status = 'pending'";
+        $params = [':college_id' => $collegeId];
+        if ($departmentId) {
+            $query .= " AND fr.department_id = :department_id";
+            $params[':department_id'] = $departmentId;
+        }
+        $query .= " ORDER BY fr.created_at DESC";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Approve or reject a faculty registration request
+     * @param int $requestId
+     * @param string $status ('approved' or 'rejected')
+     * @param int $deanId
+     * @throws Exception
+     */
+    public function updateFacultyRequestStatus($requestId, $status, $deanId)
+    {
+        if (!in_array($status, ['approved', 'rejected'])) {
+            throw new Exception("Invalid status");
+        }
+
+        $this->db->beginTransaction();
+        try {
+            // Verify dean access
+            $query = "SELECT college_id FROM users WHERE user_id = :dean_id AND role_id = 4";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute([':dean_id' => $deanId]);
+            $dean = $stmt->fetch();
+            if (!$dean) {
+                throw new Exception("Invalid dean");
+            }
+
+            // Update request status
+            $query = "UPDATE faculty_requests 
+                      SET status = :status, updated_at = NOW() 
+                      WHERE request_id = :request_id AND college_id = :college_id";
+            $stmt = $this->db->prepare($query);
+            $stmt->execute([
+                ':status' => $status,
+                ':request_id' => $requestId,
+                ':college_id' => $dean['college_id']
+            ]);
+            if ($stmt->rowCount() === 0) {
+                throw new Exception("Request not found or unauthorized");
+            }
+
+            if ($status === 'approved') {
+                // Fetch request details
+                $query = "SELECT employee_id, first_name, middle_name, last_name, suffix, email, 
+                                 username, password_hash, department_id, college_id, 
+                                 academic_rank, employment_type
+                          FROM faculty_requests 
+                          WHERE request_id = :request_id";
+                $stmt = $this->db->prepare($query);
+                $stmt->execute([':request_id' => $requestId]);
+                $request = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                // Insert into users (faculty role only)
+                $query = "INSERT INTO users (employee_id, username, password_hash, email, 
+                                            first_name, middle_name, last_name, suffix, 
+                                            role_id, department_id, college_id, is_active) 
+                          VALUES (:employee_id, :username, :password_hash, :email, 
+                                  :first_name, :middle_name, :last_name, :suffix, 
+                                  6, :department_id, :college_id, 1)";
+                $stmt = $this->db->prepare($query);
+                $stmt->execute([
+                    ':employee_id' => $request['employee_id'],
+                    ':username' => $request['username'],
+                    ':password_hash' => $request['password_hash'],
+                    ':email' => $request['email'],
+                    ':first_name' => $request['first_name'],
+                    ':middle_name' => $request['middle_name'],
+                    ':last_name' => $request['last_name'],
+                    ':suffix' => $request['suffix'],
+                    ':department_id' => $request['department_id'],
+                    ':college_id' => $request['college_id']
+                ]);
+                $userId = $this->db->lastInsertId();
+
+                // Insert into faculty
+                $query = "INSERT INTO faculty (employee_id, first_name, middle_name, last_name, suffix, 
+                                              email, academic_rank, employment_type, department_id, user_id) 
+                          VALUES (:employee_id, :first_name, :middle_name, :last_name, :suffix, 
+                                  :email, :academic_rank, :employment_type, :department_id, :user_id)";
+                $stmt = $this->db->prepare($query);
+                $stmt->execute([
+                    ':employee_id' => $request['employee_id'],
+                    ':first_name' => $request['first_name'],
+                    ':middle_name' => $request['middle_name'],
+                    ':last_name' => $request['last_name'],
+                    ':suffix' => $request['suffix'],
+                    ':email' => $request['email'],
+                    ':academic_rank' => $request['academic_rank'],
+                    ':employment_type' => $request['employment_type'],
+                    ':department_id' => $request['department_id'],
+                    ':user_id' => $userId
+                ]);
+            }
+
+            $this->db->commit();
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            throw new Exception("Failed to process request: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Deactivate a faculty or chair account
+     * @param int $userId
+     * @param int $deanId
+     * @throws Exception
+     */
+    public function deactivateAccount($userId, $deanId)
+    {
+        // Verify dean access and target user
+        $query = "SELECT u.role_id, u.college_id 
+                  FROM users u
+                  WHERE u.user_id = :user_id AND u.role_id IN (5, 6)";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([':user_id' => $userId]);
+        $targetUser = $stmt->fetch();
+
+        if (!$targetUser) {
+            throw new Exception("User not found or invalid role");
+        }
+
+        $query = "SELECT college_id FROM users WHERE user_id = :dean_id AND role_id = 4";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([':dean_id' => $deanId]);
+        $dean = $stmt->fetch();
+
+        if (!$dean || $dean['college_id'] != $targetUser['college_id']) {
+            throw new Exception("Dean can only deactivate accounts in their college");
+        }
+
+        // Deactivate user
+        $query = "UPDATE users 
+                  SET is_active = 0 
+                  WHERE user_id = :user_id";
+        $stmt = $this->db->prepare($query);
+        $stmt->execute([':user_id' => $userId]);
+        if ($stmt->rowCount() === 0) {
+            throw new Exception("User not found");
         }
     }
 }
